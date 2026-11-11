@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 
 from . import store
@@ -15,6 +16,15 @@ log = logging.getLogger(__name__)
 # Lecture halls, seminar rooms, computer rooms.
 DEFAULT_TYPECODES = ("3430", "3420", "3650")
 DEFAULT_SITES = ("Zürich Zentrum", "Zürich Hönggerberg")
+
+ROOMS_FILE = Path(__file__).with_name("rooms.txt")
+
+
+def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
+    """Centrally managed rooms ("building floor room"), see rooms.txt for why."""
+    lines = (ln.strip() for ln in path.read_text(encoding="utf-8").splitlines())
+    return frozenset(ln for ln in lines if ln and not ln.startswith("#"))
+
 
 CLOSED_TYPES = {7, 8}     # 8: nightly/weekend building closure, 7: holiday closure
 CANCELLED_TYPES = {13}    # cancelled event -> room is actually free
@@ -41,9 +51,12 @@ def normalize(alloc: dict) -> tuple[str, str, str, str | None, int] | None:
 
 
 def select_rooms(rooms: list[dict], typecodes=DEFAULT_TYPECODES, sites=DEFAULT_SITES,
-                 buildings: tuple[str, ...] | None = None) -> list[dict]:
+                 buildings: tuple[str, ...] | None = None,
+                 allowlist: frozenset[str] | None = None) -> list[dict]:
     out = []
     for r in rooms:
+        if allowlist is not None and query_id(r) not in allowlist:
+            continue
         if typecodes and r.get("typecode") not in typecodes:
             continue
         if sites and r.get("locationName") not in sites:
@@ -59,8 +72,16 @@ def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7
         typecodes=DEFAULT_TYPECODES) -> dict:
     client = client or ApiClient()
     all_rooms = client.rooms()
-    rooms = select_rooms(all_rooms, typecodes, sites, buildings)
+    allow = load_allowlist()
+    rooms = select_rooms(all_rooms, typecodes, sites, buildings, allow)
     log.info("room list: %d total, %d selected", len(all_rooms), len(rooms))
+    gone = allow - {query_id(r) for r in all_rooms}
+    if gone and not buildings:
+        log.warning("rooms.txt lists rooms the API no longer knows: %s", ", ".join(sorted(gone)))
+    # Drop rooms that are no longer selected (e.g. department rooms from older versions).
+    keep = [query_id(r) for r in rooms]
+    conn.execute(f"DELETE FROM rooms WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
+    conn.commit()
 
     today = datetime.now(TZ).date()
     start, end = today, today + timedelta(days=days)
@@ -93,13 +114,14 @@ def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7
 
 def _save_room(conn, r: dict, rid: str, rows, n_raw: int, start: date, end: date) -> None:
     conn.execute(
-        """INSERT INTO rooms(id, building, floor, room, type, typecode, seats, site, fetched_at, n_entries)
-           VALUES (?,?,?,?,?,?,?,?,?,?)
+        """INSERT INTO rooms(id, building, floor, room, type, typecode, seats, workplaces, site, fetched_at, n_entries)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET building=excluded.building, floor=excluded.floor,
              room=excluded.room, type=excluded.type, typecode=excluded.typecode, seats=excluded.seats,
+             workplaces=excluded.workplaces,
              site=excluded.site, fetched_at=excluded.fetched_at, n_entries=excluded.n_entries""",
         (rid, r["building"], r["floor"], r["room"], r.get("type"), r.get("typecode"), r.get("seats"),
-         r.get("locationName"), datetime.now(timezone.utc).isoformat(timespec="seconds"), n_raw),
+         r.get("workplaces"), r.get("locationName"), datetime.now(timezone.utc).isoformat(timespec="seconds"), n_raw),
     )
     # Replace everything for this room (also drops past/stale entries).
     conn.execute("DELETE FROM intervals WHERE room_id=?", (rid,))

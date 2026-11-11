@@ -6,6 +6,7 @@ All datetimes are naive Europe/Zurich local time (the API has no offsets).
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -66,6 +67,57 @@ def room_status(intervals: list[Interval], t: datetime, has_data: bool,
     return Status("free", until=nxt.start, reason=nxt.title, next_kind=nxt.kind)
 
 
+def open_hours(closed: list[tuple[datetime, datetime]], d0: datetime) -> tuple[datetime, datetime] | str | None:
+    """Opening hours on the day starting at d0, from that room's closure intervals.
+
+    Returns (open, close), "closed" if closures cover the whole day, or None if
+    there are no closure entries that day (hours unknown). If a building opens
+    twice in one day, the span from the first opening to the last closing is used.
+    """
+    d1 = d0 + timedelta(days=1)
+    ivs = sorted((max(s, d0), min(e, d1)) for s, e in closed if e > d0 and s < d1)
+    if not ivs:
+        return None
+    gaps, cursor = [], d0
+    for s, e in ivs:
+        if s - cursor > MERGE_GAP:
+            gaps.append((cursor, s))
+        cursor = max(cursor, e)
+    if d1 - cursor > MERGE_GAP:
+        gaps.append((cursor, d1))
+    if not gaps:
+        return "closed"
+    return gaps[0][0], gaps[-1][1]
+
+
+def building_hours(conn: sqlite3.Connection, t: datetime) -> dict[str, dict]:
+    """Per building: opening hours on the day of t, as the most common hours among its rooms.
+
+    {"HG": {"open": "07:00", "close": "22:00"}, "XY": {"closed": True}}; buildings
+    without closure data are left out.
+    """
+    d0 = t.replace(hour=0, minute=0, second=0, microsecond=0)
+    closed: dict[str, list] = {}
+    for row in conn.execute(
+            "SELECT room_id, start, end FROM intervals WHERE kind='closed' AND end > ? AND start < ?",
+            (d0.isoformat(), (d0 + timedelta(days=1)).isoformat())):
+        closed.setdefault(row["room_id"], []).append((_dt(row["start"]), _dt(row["end"])))
+    votes: dict[str, Counter] = {}
+    for r in conn.execute("SELECT id, building FROM rooms"):
+        h = open_hours(closed.get(r["id"], []), d0)
+        if h is not None:
+            votes.setdefault(r["building"], Counter())[h] += 1
+    out = {}
+    for b, c in sorted(votes.items()):
+        h = c.most_common(1)[0][0]
+        if h == "closed":
+            out[b] = {"closed": True}
+        else:
+            o, e = h
+            out[b] = {"open": o.strftime("%H:%M"), "close": "24:00" if e - d0 >= timedelta(hours=23, minutes=59) else e.strftime("%H:%M")}
+    return out
+
+
 def _dt(s: str) -> datetime:
     return datetime.fromisoformat(s)
 
@@ -98,7 +150,7 @@ def query(conn: sqlite3.Connection, t: datetime) -> list[dict]:
     out = []
     for r in conn.execute("SELECT * FROM rooms ORDER BY id"):
         st = room_status(by_room.get(r["id"], []), t, has_data=bool(r["n_entries"]), window_end=window_end)
-        d = {k: r[k] for k in ("id", "building", "floor", "room", "type", "typecode", "seats", "site")}
+        d = {k: r[k] for k in ("id", "building", "floor", "room", "type", "typecode", "seats", "workplaces", "site")}
         d.update(asdict(st))
         d["until"] = st.until.isoformat(timespec="minutes") if st.until else None
         d["minutes"] = st.minutes(t)

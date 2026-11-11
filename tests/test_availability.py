@@ -1,8 +1,9 @@
 import unittest
 from datetime import datetime
 
-from freerooms.availability import Interval, room_status
-from freerooms.fetch import normalize
+from freerooms import store
+from freerooms.availability import Interval, building_hours, open_hours, room_status
+from freerooms.fetch import load_allowlist, normalize, select_rooms
 
 D = datetime.fromisoformat
 
@@ -49,6 +50,35 @@ class RoomStatus(unittest.TestCase):
         self.assertEqual(st.state, "unknown")
 
 
+class OpeningHours(unittest.TestCase):
+    d0 = D("2026-11-11T00:00")
+
+    def closures(self, *pairs):
+        return [(D(s), D(e)) for s, e in pairs]
+
+    def test_normal_day(self):
+        c = self.closures(("2026-11-11T00:00", "2026-11-11T07:00"), ("2026-11-11T22:00", "2026-11-11T23:59"))
+        self.assertEqual(open_hours(c, self.d0), (D("2026-11-11T07:00"), D("2026-11-11T22:00")))
+
+    def test_closure_from_previous_day_is_clipped(self):
+        c = self.closures(("2026-11-10T20:00", "2026-11-11T08:00"), ("2026-11-11T20:00", "2026-11-12T08:00"))
+        self.assertEqual(open_hours(c, self.d0), (D("2026-11-11T08:00"), D("2026-11-11T20:00")))
+
+    def test_closed_all_day_and_unknown(self):
+        self.assertEqual(open_hours(self.closures(("2026-11-11T00:00", "2026-11-11T23:59")), self.d0), "closed")
+        self.assertIsNone(open_hours([], self.d0))
+
+    def test_building_majority(self):
+        conn = store.connect(":memory:")
+        rows = [("A1", "07:00", "22:00"), ("A2", "07:00", "22:00"), ("A3", "06:00", "23:00")]
+        for rid, o, c in rows:
+            conn.execute("INSERT INTO rooms(id, building, floor, room) VALUES (?, 'A', 'F', ?)", (rid, rid))
+            conn.executemany("INSERT INTO intervals(room_id, start, end, kind) VALUES (?,?,?,'closed')",
+                             [(rid, "2026-11-11T00:00:00", f"2026-11-11T{o}:00"), (rid, f"2026-11-11T{c}:00", "2026-11-11T23:59:00")])
+        conn.execute("INSERT INTO rooms(id, building, floor, room) VALUES ('B1', 'B', 'F', '1')")  # no closures
+        self.assertEqual(building_hours(conn, D("2026-11-11T12:00")), {"A": {"open": "07:00", "close": "22:00"}})
+
+
 def raw(btype, findet=1, title="X"):
     v = None if btype in (7, 8) else {"allocationTitle": title, "findetStatt": findet}
     return {"date_from": "2026-11-11T10:00:00", "date_to": "2026-11-11T12:00:00",
@@ -70,6 +100,16 @@ class Normalize(unittest.TestCase):
     def test_unknown_type_is_busy(self):
         with self.assertLogs("freerooms.fetch", "WARNING"):
             self.assertEqual(normalize(raw(99))[2], "busy")
+
+
+class Allowlist(unittest.TestCase):
+    def test_only_centrally_managed_rooms(self):
+        allow = load_allowlist()
+        self.assertIn("HG E 1.2", allow)
+        self.assertNotIn("HG G 19.1", allow)   # department room, bookings not public
+        rooms = [{"building": "HG", "floor": "E", "room": "1.2", "typecode": "3430", "locationName": "Zürich Zentrum"},
+                 {"building": "HG", "floor": "G", "room": "19.1", "typecode": "3420", "locationName": "Zürich Zentrum"}]
+        self.assertEqual([r["room"] for r in select_rooms(rooms, allowlist=allow)], ["1.2"])
 
 
 if __name__ == "__main__":

@@ -51,6 +51,11 @@ class ApiClient:
         path = f"/rooms/{urllib.parse.quote(room_id)}/allocations"
         return self._get(path, **{"from": start.isoformat(), "to": end.isoformat()})  # type: ignore[return-value]
 
+    def room_detail(self, room_id: str, lang: str = "en") -> dict:
+        # Accepts the same "building floor room" id; returns tabs of attributes
+        # (seats, windows, food allowed, sockets, equipment, accessibility, ...).
+        return self._get(f"/v2/rooms/{urllib.parse.quote(room_id)}", lang=lang)  # type: ignore[return-value]
+
     def date_range(self) -> dict:
         return self._get("/min-max-allocation-date")  # type: ignore[return-value]
 

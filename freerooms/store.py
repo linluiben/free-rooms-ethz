@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     type        TEXT,
     typecode    TEXT,
     seats       INTEGER,
+    workplaces  INTEGER,            -- computer rooms have workplaces instead of seats
     site        TEXT,               -- locationName, e.g. 'Zürich Zentrum'
     fetched_at  TEXT,               -- last successful allocation fetch (UTC ISO)
     n_entries   INTEGER             -- raw entries in last fetch (0 => unknown)
@@ -28,6 +29,11 @@ CREATE TABLE IF NOT EXISTS intervals (
     raw_type    INTEGER
 );
 CREATE INDEX IF NOT EXISTS intervals_room ON intervals(room_id, start);
+CREATE TABLE IF NOT EXISTS room_details (
+    room_id     TEXT PRIMARY KEY,   -- cached /v2/rooms/{id} response (equipment, windows, ...)
+    fetched_at  TEXT NOT NULL,      -- UTC ISO
+    json        TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -42,7 +48,15 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(rooms)")}
+    if "workplaces" not in cols:  # added after the first release
+        conn.execute("ALTER TABLE rooms ADD COLUMN workplaces INTEGER")
+        conn.commit()
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:

@@ -9,13 +9,13 @@
   :root {
     --bg: #f5f6f8; --card: #fff; --text: #16191f; --muted: #626b7a; --line: #e3e6eb;
     --accent: #1f407a; --free: #1a7f4b; --free-bg: #e4f4ea; --busy: #b4372f; --busy-bg: #fbe9e7;
-    --closed: #8a8f99; --warn: #9a6400; --chip: #eceff3;
+    --closed: #8a8f99; --warn: #9a6400; --chip: #eceff3; --shade: rgba(10, 14, 20, .38);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #101216; --card: #1a1d23; --text: #e8eaee; --muted: #9aa2b1; --line: #2b3039;
       --accent: #8fb0ea; --free: #5fd394; --free-bg: #173324; --busy: #f08a80; --busy-bg: #3a1e1c;
-      --closed: #6b717c; --warn: #e2b04a; --chip: #252a32;
+      --closed: #6b717c; --warn: #e2b04a; --chip: #252a32; --shade: rgba(0, 0, 0, .55);
     }
   }
   * { box-sizing: border-box; }
@@ -24,8 +24,13 @@
   header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 16px 8px;
     border-bottom: 1px solid var(--line); }
   .wrap { max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
   h1 span { color: var(--muted); font-weight: 500; }
+  .seg { display: inline-flex; background: var(--chip); border-radius: 999px; padding: 2px; }
+  .seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
+    padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
   .chip { border: 0; background: var(--chip); color: var(--text); padding: 6px 11px; border-radius: 999px;
     font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
@@ -37,36 +42,79 @@
   .summary { color: var(--muted); font-size: 14px; margin: 4px 0 10px; }
   .summary b { color: var(--text); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
-    margin-bottom: 8px; cursor: pointer; }
+    margin-bottom: 8px; cursor: pointer; display: block; width: 100%; text-align: left; font: inherit; color: inherit; }
+  .card:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .card.soon { opacity: .72; }
   .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .name { font-weight: 650; font-size: 17px; font-variant-numeric: tabular-nums; }
   .status { font-weight: 600; font-size: 14px; white-space: nowrap; }
-  .free .status { color: var(--free); }
-  .busy .status, .closed .status { color: var(--busy); }
-  .unknown .status { color: var(--closed); }
+  .free .status, .s-free { color: var(--free); }
+  .busy .status, .closed .status, .s-busy, .s-closed { color: var(--busy); }
+  .unknown .status, .s-unknown { color: var(--closed); }
   .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
   .warn { color: var(--warn); }
   .bar { position: relative; height: 8px; background: var(--free-bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .bar i { position: absolute; top: 0; bottom: 0; background: var(--busy); opacity: .75; }
   .bar .off { background: var(--closed); opacity: .35; }
   .bar .now { background: var(--text); width: 2px; opacity: 1; }
-  .ticks { display: none; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
-  .details { display: none; margin-top: 8px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 6px; }
-  .card.open .details { display: block; }
-  .card.open .ticks { display: flex; }
-  .details div { display: flex; gap: 10px; padding: 2px 0; }
-  .details time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 92px; }
+  .ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .ratio { position: relative; height: 6px; background: var(--chip); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .ratio i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--free); border-radius: 3px; }
+  .count { font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .count small { color: var(--muted); font-weight: 500; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
   footer { color: var(--muted); font-size: 12px; margin-top: 24px; line-height: 1.5; }
   .empty { text-align: center; color: var(--muted); padding: 32px 0; }
   a { color: var(--accent); }
+
+  /* Room panel: bottom sheet on phones, side panel on wide screens. */
+  #shade { position: fixed; inset: 0; background: var(--shade); z-index: 9; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #panel { position: fixed; z-index: 10; background: var(--card); color: var(--text); overflow-y: auto; overscroll-behavior: contain;
+    left: 0; right: 0; bottom: 0; max-height: 88vh; border-radius: 16px 16px 0 0; border-top: 1px solid var(--line);
+    padding: 6px 16px calc(24px + env(safe-area-inset-bottom)); transform: translateY(105%); transition: transform .22s ease;
+    visibility: hidden; }
+  body.panel-open #panel { transform: none; visibility: visible; }
+  body.panel-open #shade { opacity: 1; pointer-events: auto; }
+  .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 8px; }
+  @media (min-width: 960px) {
+    #panel { left: auto; top: 0; width: 420px; max-height: none; border-radius: 0; border-top: 0; border-left: 1px solid var(--line);
+      padding: 16px 20px 32px; transform: translateX(105%); }
+    .grab, #shade { display: none; }
+    body.panel-open { padding-right: 420px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #panel, #shade { transition: none; } }
+  .ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .ph .name { font-size: 22px; }
+  .x { border: 0; background: var(--chip); color: var(--text); width: 32px; height: 32px; border-radius: 50%;
+    font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
+  .pstatus { font-weight: 650; font-size: 16px; margin-top: 8px; }
+  #panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 20px 0 6px; }
+  .evts div { display: flex; gap: 10px; padding: 3px 0; font-size: 14px; }
+  .evts time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 92px; flex: none; }
+  .kv { display: grid; grid-template-columns: minmax(110px, 40%) 1fr; gap: 4px 12px; font-size: 14px; margin: 0; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  details { margin-top: 10px; font-size: 14px; }
+  summary { cursor: pointer; color: var(--accent); }
+  details h4 { font-size: 13px; margin: 12px 0 4px; }
+  .links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .links a { text-decoration: none; background: var(--chip); color: var(--text); padding: 7px 12px; border-radius: 999px; font-size: 14px; }
+  .plan { display: block; margin-top: 4px; background: #fff; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; }
+  .plan img { display: block; width: 100%; height: auto; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
 </style>
 </head>
 <body>
 <header>
   <div class="wrap">
-    <h1>Free rooms <span>· ETH Zürich</span></h1>
+    <div class="head">
+      <h1>Free rooms <span>· ETH</span></h1>
+      <div class="seg" id="view" role="group" aria-label="View">
+        <button data-view="rooms" aria-pressed="true">Rooms</button>
+        <button data-view="buildings" aria-pressed="false">Buildings</button>
+      </div>
+    </div>
     <div class="row" id="when">
       <button class="chip" data-when="now" aria-pressed="true">Now</button>
       <button class="chip" data-when="60">+1h</button>
@@ -92,27 +140,35 @@
   <div id="list"></div>
   <footer id="footer"></footer>
 </main>
+<div id="shade"></div>
+<aside id="panel" role="dialog" aria-modal="false" aria-label="Room details" tabindex="-1"></aside>
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 const DAY_START = 7, DAY_END = 22;  // timeline range in hours
+const ETH = "https://ethz.ch";
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem("fr." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("fr." + k, JSON.stringify(v)); } catch {} },
 };
 const state = {
+  view: store.get("view", "rooms"),            // "rooms" | "buildings"
   when: "now",                                   // "now" | minutes offset | ISO string
   site: store.get("site", "Zürich Zentrum"),
   building: store.get("building", ""),
   min: store.get("min", 45),
   data: null,
-  open: new Set(),
+  room: null,                                    // id of the room shown in the panel
+  pushed: false,                                 // did we add a history entry for the panel?
 };
+const details = new Map();                       // room id -> detail JSON (or Promise)
 
 const pad = n => String(n).padStart(2, "0");
 const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const hm = iso => iso.slice(11, 16);
 const toMin = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const q = o => new URLSearchParams(o).toString();
 function dur(min) {
   if (min == null) return "";
   if (min < 60) return `${min} min`;
@@ -121,11 +177,25 @@ function dur(min) {
 }
 function untilLabel(r, at) {
   if (!r.until) return "rest of day";
-  const sameDay = r.until.slice(0, 10) === at.slice(0, 10);
-  if (sameDay) return hm(r.until);
-  const d = new Date(r.until);
-  return d.toLocaleDateString("en-GB", { weekday: "short" }) + " " + hm(r.until);
+  if (r.until.slice(0, 10) === at.slice(0, 10)) return hm(r.until);
+  return new Date(r.until).toLocaleDateString("en-GB", { weekday: "short" }) + " " + hm(r.until);
 }
+function statusText(r, at) {
+  if (r.state === "free" && !r.hours_known) return r.until && r.until.slice(0, 10) === at.slice(0, 10) ? `free until ${hm(r.until)}?` : "free?";
+  if (r.state === "free") return `free until ${untilLabel(r, at)}` + (r.minutes != null ? ` · ${dur(r.minutes)}` : "");
+  if (r.state === "busy") return `busy until ${untilLabel(r, at)}`;
+  if (r.state === "closed") return "building closed";
+  return "no data";
+}
+const TYPES = { "3430": "Lecture hall", "3420": "Seminar room", "3650": "Computer room" };
+const typeName = r => TYPES[r.typecode] || r.type;
+const places = r => r.seats ? `${r.seats} seats` : r.workplaces ? `${r.workplaces} workplaces` : null;
+function hoursText(b) {
+  const h = state.data.buildings?.[b];
+  if (!h) return null;
+  return h.closed ? "closed all day" : `open ${h.open}–${h.close}`;
+}
+const goodFor = r => r.state === "free" && (r.minutes ?? 1e9) >= state.min;
 
 function atParam() {
   if (state.when === "now") return "";
@@ -135,91 +205,205 @@ function atParam() {
 
 async function load() {
   const at = atParam();
-  const res = await fetch("api/rooms" + (at ? "?at=" + encodeURIComponent(at) : ""));
+  const res = await fetch("api/rooms" + (at ? "?" + q({ at }) : ""));
   state.data = await res.json();
-  fillBuildings();
-  render();
+  fillBuildings(); render();
 }
+
+function siteRooms() { return state.data.rooms.filter(r => !state.site || r.site === state.site); }
 
 function fillBuildings() {
   const sel = $("#building");
-  const bs = [...new Set(state.data.rooms.filter(r => !state.site || r.site === state.site).map(r => r.building))].sort();
-  sel.innerHTML = `<option value="">All buildings</option>` + bs.map(b => `<option>${b}</option>`).join("");
+  const bs = [...new Set(siteRooms().map(r => r.building))].sort();
+  sel.innerHTML = `<option value="">All buildings</option>` + bs.map(b => `<option>${esc(b)}</option>`).join("");
   if (!bs.includes(state.building)) state.building = "";
   sel.value = state.building;
 }
 
-function timelineBar(r, atISO) {
+function timelineBar(timeline, atISO, ticks) {
   const span = (DAY_END - DAY_START) * 60, x = m => Math.max(0, Math.min(100, (m - DAY_START * 60) / span * 100));
   let html = "";
-  for (const [s, e, , kind] of r.timeline) {
+  for (const [s, e, , kind] of timeline) {
     const a = x(toMin(s)), b = x(e === "23:59" ? 1440 : toMin(e));
     if (b > a) html += `<i${kind === "closed" ? ' class="off"' : ""} style="left:${a}%;width:${b - a}%"></i>`;
   }
-  const now = x(toMin(atISO.slice(11, 16)));
-  html += `<i class="now" style="left:calc(${now}% - 1px)"></i>`;
-  return `<div class="bar">${html}</div><div class="ticks"><span>${DAY_START}</span><span>10</span><span>13</span><span>16</span><span>19</span><span>${DAY_END}</span></div>`;
+  html += `<i class="now" style="left:calc(${x(toMin(hm(atISO)))}% - 1px)"></i>`;
+  const t = ticks ? `<div class="ticks"><span>${DAY_START}</span><span>10</span><span>13</span><span>16</span><span>19</span><span>${DAY_END}</span></div>` : "";
+  return `<div class="bar" aria-hidden="true">${html}</div>${t}`;
 }
 
 function card(r, at) {
-  let status;
-  if (r.state === "free" && !r.hours_known) status = r.until && r.until.slice(0, 10) === at.slice(0, 10) ? `free until ${hm(r.until)}?` : "free?";
-  else if (r.state === "free") status = `free until ${untilLabel(r, at)}` + (r.minutes != null ? ` · ${dur(r.minutes)}` : "");
-  else if (r.state === "busy") status = `busy until ${hm(r.until)}`;
-  else if (r.state === "closed") status = `building closed`;
-  else status = "no data";
   const soon = r.state === "free" && r.minutes != null && r.minutes < state.min;
-  const meta = [r.seats ? `${r.seats} seats` : null, r.type].filter(Boolean).join(" · ");
+  const meta = [places(r), typeName(r)].filter(Boolean).join(" · ");
   const warn = r.state !== "unknown" && !r.hours_known ? ` · <span class="warn">opening hours unknown</span>` : "";
   const now = r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : "";
-  const busy = r.timeline.filter(i => i[3] === "busy");
-  const evts = busy.length
-    ? busy.map(([s, e, t]) => `<div><time>${s}–${e}</time><span>${esc(t || "booked")}</span></div>`).join("")
-    : `<div><span>No bookings this day.</span></div>`;
-  const id = encodeURIComponent(r.id);
-  return `<div class="card ${r.state}${soon ? " soon" : ""}${state.open.has(r.id) ? " open" : ""}" data-id="${esc(r.id)}">
-    <div class="top"><span class="name">${esc(r.id)}</span><span class="status">${status}</span></div>
+  return `<button class="card ${r.state}${soon ? " soon" : ""}${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
+    <div class="top"><span class="name">${esc(r.id)}</span><span class="status">${statusText(r, at)}</span></div>
     <div class="meta">${esc(meta)}${warn}</div>${now}
-    ${timelineBar(r, at)}
-    <div class="details">${evts}
-      <div><a href="https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?room=${id}" target="_blank" rel="noopener">Official schedule ↗</a></div>
-    </div></div>`;
+    ${timelineBar(r.timeline, at, false)}</button>`;
 }
 
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function whenText(at) {
+  return state.when === "now" ? "right now" : new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
 
-function render() {
-  const d = state.data, at = d.at;
-  let rooms = d.rooms.filter(r => (!state.site || r.site === state.site) && (!state.building || r.building === state.building));
+function renderRooms(d, at) {
+  const rooms = siteRooms().filter(r => !state.building || r.building === state.building);
   // Longest free first; rooms without opening-hours data go last (their "free until" is unreliable).
-  const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) || (b.seats || 0) - (a.seats || 0);
-  const free = rooms.filter(r => r.state === "free" && (r.minutes ?? 1e9) >= state.min).sort(byLen);
-  const short = rooms.filter(r => r.state === "free" && (r.minutes ?? 1e9) < state.min).sort(byLen);
+  const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) || ((b.seats || b.workplaces || 0) - (a.seats || a.workplaces || 0));
+  const free = rooms.filter(goodFor).sort(byLen);
+  const short = rooms.filter(r => r.state === "free" && !goodFor(r)).sort(byLen);
   const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until)).slice(0, 8);
   const closed = rooms.some(r => r.state === "closed");
 
-  const when = state.when === "now" ? "right now" : new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  $("#summary").innerHTML = `<b>${free.length}</b> room${free.length === 1 ? "" : "s"} free ${when}` +
-    (state.min ? ` for ${dur(state.min)}+` : "") + ` · ${rooms.length} checked`;
-
-  if (!d.last_fetch) {
-    $("#summary").textContent = "No data yet. The first fetch takes about 1–2 minutes, reload then.";
-    $("#list").innerHTML = ""; return;
-  }
+  $("#summary").innerHTML = `<b>${free.length}</b> room${free.length === 1 ? "" : "s"} free ${whenText(at)}` +
+    (state.min ? ` for ${dur(state.min)}+` : "") + ` · ${rooms.length} checked` +
+    (state.building && hoursText(state.building) ? ` · ${esc(state.building)} ${hoursText(state.building)}` : "");
   let html = free.map(r => card(r, at)).join("");
   if (!free.length) html += `<div class="empty">${closed && !short.length ? "Buildings are closed at this time." : "Nothing free for that long. Try a shorter duration."}</div>`;
   if (short.length) html += `<h2>Free, but only briefly</h2>` + short.map(r => card(r, at)).join("");
   if (soonFree.length) html += `<h2>Busy, free soon</h2>` + soonFree.map(r => card(r, at)).join("");
   $("#list").innerHTML = html;
-
-  const lf = d.last_fetch ? new Date(d.last_fetch).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "never";
-  $("#footer").innerHTML = `Data from ETH Rauminfo, fetched ${lf}. “Free” means nothing is scheduled. The room may still be locked or used informally, and cancellations or short-notice bookings can be missing. Not an official ETH service.`;
 }
+
+function renderBuildings(d, at) {
+  const by = new Map();
+  for (const r of siteRooms()) {
+    const b = by.get(r.building) || { name: r.building, site: r.site, total: 0, free: 0, seats: 0 };
+    b.total++;
+    if (goodFor(r)) { b.free++; b.seats += r.seats || r.workplaces || 0; }
+    by.set(r.building, b);
+  }
+  const list = [...by.values()].sort((a, b) => b.free - a.free || b.seats - a.seats || a.name.localeCompare(b.name));
+  const nFree = list.reduce((s, b) => s + b.free, 0);
+  $("#summary").innerHTML = `<b>${nFree}</b> free room${nFree === 1 ? "" : "s"} in <b>${list.filter(b => b.free).length}</b> of ${list.length} buildings ${whenText(at)}` +
+    (state.min ? ` for ${dur(state.min)}+` : "");
+  $("#list").innerHTML = list.map(b => {
+    const hours = hoursText(b.name);
+    const meta = [b.free ? `${b.seats} seats free` : null, hours, state.site ? null : b.site.replace("Zürich ", "")].filter(Boolean).join(" · ");
+    return `<button class="card${b.free ? "" : " soon"}" data-building="${esc(b.name)}">
+      <div class="top"><span class="name">${esc(b.name)}</span><span class="count">${b.free} <small>of ${b.total} free</small></span></div>
+      <div class="meta">${esc(meta)}</div>
+      <div class="ratio" aria-hidden="true"><i style="width:${b.total ? b.free / b.total * 100 : 0}%"></i></div></button>`;
+  }).join("") || `<div class="empty">No rooms in this area.</div>`;
+}
+
+function render() {
+  const d = state.data, at = d.at;
+  if (!d.last_fetch) {
+    $("#summary").textContent = "No data yet. The first fetch takes about 1 minute, reload then.";
+    $("#list").innerHTML = ""; return;
+  }
+  for (const b of document.querySelectorAll("#view button")) b.setAttribute("aria-pressed", String(b.dataset.view === state.view));
+  $("#building").hidden = state.view === "buildings";
+  (state.view === "buildings" ? renderBuildings : renderRooms)(d, at);
+  const lf = new Date(d.last_fetch).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" });
+  $("#footer").innerHTML = `Data from ETH Rauminfo, fetched ${lf}. Only centrally managed rooms (Rektoratsräume) are listed, since other rooms are booked through channels that aren't published. “Free” means nothing is scheduled. The room may still be locked or used informally, and short-notice bookings can be missing. Not an official ETH service.`;
+  if (state.room) renderPanel();
+}
+
+// --- room panel ---
+const HIGHLIGHTS = ["PL.SITZ.SITZPL", "PL.SITZ.ARBPL", "PL.SITZ.BESTU", "AUS.FENSTER", "NUTZ.FOOD", "AUS.STROM", "RAUM.BODENFL", "HIFR.ZUG.RST"];
+
+function detailHTML(det) {
+  if (!det) return `<p class="meta">Loading room details…</p>`;
+  if (det.error) return `<p class="meta">Couldn't load room details from ETH right now.</p>`;
+  const all = det.tabs.flatMap(t => t.items);
+  const hi = HIGHLIGHTS.flatMap(p => all.filter(i => i.name && i.name.startsWith(p)));
+  const kv = items => `<dl class="kv">${items.map(i => `<dt>${esc(i.label)}</dt><dd>${esc(i.value)}</dd>`).join("")}</dl>`;
+  let html = det.description ? `<p>${esc(det.description)}</p>` : "";
+  html += hi.length ? kv(hi) : `<p class="meta">No details listed.</p>`;
+  if (det.tabs.length) html += `<details><summary>All room details</summary>${det.tabs.map(t => `<h4>${esc(t.title)}</h4>${kv(t.items)}`).join("")}</details>`;
+  return html;
+}
+
+function loadDetail(id) {
+  if (details.has(id)) return;
+  details.set(id, null);
+  fetch("api/roomdetail?" + q({ id }))
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .catch(() => ({ error: true }))
+    .then(det => { details.set(id, det); if (det.error) setTimeout(() => details.delete(id), 30000); if (state.room === id) $("#pdetail").innerHTML = detailHTML(det); });
+}
+
+function renderPanel() {
+  const r = state.data.rooms.find(x => x.id === state.room);
+  if (!r) { closePanel(); return; }
+  const at = state.data.at;
+  const loc = { building: r.building, floor: r.floor, room: r.room };
+  const day = at.slice(0, 10) === state.data.now.slice(0, 10) ? "Today" : new Date(at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+  const busy = r.timeline.filter(i => i[3] === "busy");
+  const evts = busy.length ? busy.map(([s, e, t]) => `<div><time>${s}–${e}</time><span>${esc(t || "booked")}</span></div>`).join("")
+                           : `<div><span class="meta">No bookings.</span></div>`;
+  const hours = hoursText(r.building);
+  const svg = `${ETH}/content/dam/ethz/common/images/arealplaene/gebaeudeorientierung/${encodeURIComponent(r.building)}.svg`;
+  $("#panel").innerHTML = `<div class="grab"></div>
+    <div class="ph"><div><div class="name">${esc(r.id)}</div>
+      <div class="meta">${esc([typeName(r), places(r), r.site].filter(Boolean).join(" · "))}</div></div>
+      <button class="x" id="close" aria-label="Close">✕</button></div>
+    <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
+    ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
+    ${hours ? `<div class="meta">Building ${esc(r.building)} ${hours}</div>` : ""}
+    <h3>${esc(day)}</h3>
+    ${timelineBar(r.timeline, at, true)}
+    <div class="evts" style="margin-top:8px">${evts}</div>
+    <div class="links">
+      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails.html?${q(loc)}" target="_blank" rel="noopener">Room details ↗</a>
+      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?${q({ room: r.id })}" target="_blank" rel="noopener">Schedule ↗</a>
+      <a href="${ETH}/staffnet/de/utils/location.html?${q(loc)}" target="_blank" rel="noopener">Location ↗</a>
+    </div>
+    <h3>About this room</h3>
+    <div id="pdetail">${detailHTML(details.get(r.id))}</div>
+    <h3>Where is ${esc(r.building)}</h3>
+    <a class="plan" href="${svg}" target="_blank" rel="noopener"><img src="${svg}" alt="Campus map with building ${esc(r.building)}" loading="lazy"></a>
+    <div class="note">Campus map from ETH. The floor plan with the room highlighted is on the Location page and needs an ETH login.</div>`;
+  loadDetail(r.id);
+  for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
+  document.querySelector(`.card[data-id="${CSS.escape(r.id)}"]`)?.classList.add("sel");
+}
+
+function openPanel(id, push = true) {
+  const wasOpen = !!state.room;
+  state.room = id;
+  if (push) {
+    const url = "#room=" + encodeURIComponent(id);
+    // One history entry per panel session, so Back closes it (on phones that's the natural gesture).
+    if (state.pushed) history.replaceState({ room: id }, "", url); else { history.pushState({ room: id }, "", url); state.pushed = true; }
+  }
+  document.body.classList.add("panel-open");
+  renderPanel();
+  if (!wasOpen) $("#panel").scrollTop = 0;
+  $("#panel").focus({ preventScroll: true });
+}
+function closePanel(fromHistory = false) {
+  if (!state.room) return;
+  const id = state.room;
+  state.room = null;
+  document.body.classList.remove("panel-open");
+  for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
+  if (!fromHistory) {
+    if (state.pushed) history.back(); else history.replaceState(null, "", location.pathname + location.search);
+  }
+  state.pushed = false;
+  document.querySelector(`.card[data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+}
+function roomFromHash() { const m = location.hash.match(/^#room=(.+)$/); return m ? decodeURIComponent(m[1]) : null; }
+window.addEventListener("popstate", () => {
+  const id = roomFromHash();
+  if (id) { state.pushed = true; openPanel(id, false); } else closePanel(true);
+});
+$("#panel").addEventListener("click", e => { if (e.target.closest("#close")) closePanel(); });
+$("#shade").addEventListener("click", () => closePanel());
+document.addEventListener("keydown", e => { if (e.key === "Escape" && state.room) closePanel(); });
 
 // --- controls ---
 function press(group, attr, val) {
   for (const b of document.querySelectorAll(`#${group} .chip`)) b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)));
 }
+$("#view").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.view = b.dataset.view; store.set("view", state.view); render();
+});
 $("#when").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if (!b) return;
   state.when = b.dataset.when === "now" ? "now" : Number(b.dataset.when);
@@ -240,17 +424,23 @@ $("#dur").addEventListener("click", e => {
   state.min = Number(b.dataset.min); store.set("min", state.min); press("dur", "min", state.min); render();
 });
 $("#list").addEventListener("click", e => {
-  if (e.target.closest("a")) return;
   const c = e.target.closest(".card"); if (!c) return;
-  const id = c.dataset.id; state.open.has(id) ? state.open.delete(id) : state.open.add(id);
-  c.classList.toggle("open");
+  if (c.dataset.building) {        // building overview -> that building's rooms
+    state.building = c.dataset.building; store.set("building", state.building);
+    state.view = "rooms"; store.set("view", "rooms");
+    $("#building").value = state.building; render(); scrollTo(0, 0);
+  } else openPanel(c.dataset.id);
 });
 
-const urlAt = new URLSearchParams(location.search).get("at");   // shareable: /?at=2026-11-12T14:00
+const params = new URLSearchParams(location.search);
+const urlAt = params.get("at");                     // shareable: /?at=2026-11-12T14:00
+if (["rooms", "buildings"].includes(params.get("view"))) state.view = params.get("view");   // /?view=buildings
 if (urlAt) { state.when = urlAt; $("#at").value = urlAt.slice(0, 16); press("when", "when", "-"); }
 press("site", "site", state.site); press("dur", "min", state.min);
 const INITIAL = /*INITIAL_DATA*/null;
-if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); } else load();
+const startRoom = roomFromHash();
+function start() { if (startRoom && state.data.rooms.some(r => r.id === startRoom)) openPanel(startRoom, false); }
+if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); start(); } else load().then(start);
 setInterval(() => { if (state.when === "now") load(); }, 5 * 60 * 1000);
 </script>
 </body>

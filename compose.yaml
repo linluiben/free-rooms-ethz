@@ -7,7 +7,7 @@ services:
     volumes:
       - ./data:/data
     environment:
-      FREEROOMS_REFRESH_HOURS: "2"     # refetch every 2h (~70 s, ~230 requests)
+      FREEROOMS_REFRESH_HOURS: "2"     # refetch every 2h (~1 min, ~185 requests)
       # FREEROOMS_BUILDINGS: "HG,CAB,ML"
       # FREEROOMS_DAYS: "7"
     healthcheck:
