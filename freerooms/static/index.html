@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f407a">
+<title>Free Rooms ETH</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #16191f; --muted: #626b7a; --line: #e3e6eb;
+    --accent: #1f407a; --free: #1a7f4b; --free-bg: #e4f4ea; --busy: #b4372f; --busy-bg: #fbe9e7;
+    --closed: #8a8f99; --warn: #9a6400; --chip: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216; --card: #1a1d23; --text: #e8eaee; --muted: #9aa2b1; --line: #2b3039;
+      --accent: #8fb0ea; --free: #5fd394; --free-bg: #173324; --busy: #f08a80; --busy-bg: #3a1e1c;
+      --closed: #6b717c; --warn: #e2b04a; --chip: #252a32;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 16px 8px;
+    border-bottom: 1px solid var(--line); }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 500; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .chip { border: 0; background: var(--chip); color: var(--text); padding: 6px 11px; border-radius: 999px;
+    font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+  select, input[type=datetime-local] { font: inherit; font-size: 14px; padding: 5px 8px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .label { color: var(--muted); font-size: 13px; margin-right: 2px; }
+  main { padding: 10px 16px 40px; }
+  .summary { color: var(--muted); font-size: 14px; margin: 4px 0 10px; }
+  .summary b { color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+    margin-bottom: 8px; cursor: pointer; }
+  .card.soon { opacity: .72; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .name { font-weight: 650; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .status { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .free .status { color: var(--free); }
+  .busy .status, .closed .status { color: var(--busy); }
+  .unknown .status { color: var(--closed); }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .warn { color: var(--warn); }
+  .bar { position: relative; height: 8px; background: var(--free-bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .bar i { position: absolute; top: 0; bottom: 0; background: var(--busy); opacity: .75; }
+  .bar .off { background: var(--closed); opacity: .35; }
+  .bar .now { background: var(--text); width: 2px; opacity: 1; }
+  .ticks { display: none; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .details { display: none; margin-top: 8px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .card.open .details { display: block; }
+  .card.open .ticks { display: flex; }
+  .details div { display: flex; gap: 10px; padding: 2px 0; }
+  .details time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 92px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 24px; line-height: 1.5; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Free rooms <span>· ETH Zürich</span></h1>
+    <div class="row" id="when">
+      <button class="chip" data-when="now" aria-pressed="true">Now</button>
+      <button class="chip" data-when="60">+1h</button>
+      <button class="chip" data-when="120">+2h</button>
+      <input type="datetime-local" id="at" step="900" aria-label="Pick a time">
+    </div>
+    <div class="row" id="site">
+      <button class="chip" data-site="Zürich Zentrum">Zentrum</button>
+      <button class="chip" data-site="Zürich Hönggerberg">Hönggerberg</button>
+      <select id="building" aria-label="Building"><option value="">All buildings</option></select>
+    </div>
+    <div class="row" id="dur">
+      <span class="label">Free for</span>
+      <button class="chip" data-min="0">any</button>
+      <button class="chip" data-min="45">45m+</button>
+      <button class="chip" data-min="90">1½h+</button>
+      <button class="chip" data-min="180">3h+</button>
+    </div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="summary" id="summary">Loading…</div>
+  <div id="list"></div>
+  <footer id="footer"></footer>
+</main>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const DAY_START = 7, DAY_END = 22;  // timeline range in hours
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("fr." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("fr." + k, JSON.stringify(v)); } catch {} },
+};
+const state = {
+  when: "now",                                   // "now" | minutes offset | ISO string
+  site: store.get("site", "Zürich Zentrum"),
+  building: store.get("building", ""),
+  min: store.get("min", 45),
+  data: null,
+  open: new Set(),
+};
+
+const pad = n => String(n).padStart(2, "0");
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const hm = iso => iso.slice(11, 16);
+const toMin = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+function dur(min) {
+  if (min == null) return "";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${pad(m)}m` : `${h}h`;
+}
+function untilLabel(r, at) {
+  if (!r.until) return "rest of day";
+  const sameDay = r.until.slice(0, 10) === at.slice(0, 10);
+  if (sameDay) return hm(r.until);
+  const d = new Date(r.until);
+  return d.toLocaleDateString("en-GB", { weekday: "short" }) + " " + hm(r.until);
+}
+
+function atParam() {
+  if (state.when === "now") return "";
+  if (typeof state.when === "number") return isoLocal(new Date(Date.now() + state.when * 60000));
+  return state.when;
+}
+
+async function load() {
+  const at = atParam();
+  const res = await fetch("api/rooms" + (at ? "?at=" + encodeURIComponent(at) : ""));
+  state.data = await res.json();
+  fillBuildings();
+  render();
+}
+
+function fillBuildings() {
+  const sel = $("#building");
+  const bs = [...new Set(state.data.rooms.filter(r => !state.site || r.site === state.site).map(r => r.building))].sort();
+  sel.innerHTML = `<option value="">All buildings</option>` + bs.map(b => `<option>${b}</option>`).join("");
+  if (!bs.includes(state.building)) state.building = "";
+  sel.value = state.building;
+}
+
+function timelineBar(r, atISO) {
+  const span = (DAY_END - DAY_START) * 60, x = m => Math.max(0, Math.min(100, (m - DAY_START * 60) / span * 100));
+  let html = "";
+  for (const [s, e, , kind] of r.timeline) {
+    const a = x(toMin(s)), b = x(e === "23:59" ? 1440 : toMin(e));
+    if (b > a) html += `<i${kind === "closed" ? ' class="off"' : ""} style="left:${a}%;width:${b - a}%"></i>`;
+  }
+  const now = x(toMin(atISO.slice(11, 16)));
+  html += `<i class="now" style="left:calc(${now}% - 1px)"></i>`;
+  return `<div class="bar">${html}</div><div class="ticks"><span>${DAY_START}</span><span>10</span><span>13</span><span>16</span><span>19</span><span>${DAY_END}</span></div>`;
+}
+
+function card(r, at) {
+  let status;
+  if (r.state === "free" && !r.hours_known) status = r.until && r.until.slice(0, 10) === at.slice(0, 10) ? `free until ${hm(r.until)}?` : "free?";
+  else if (r.state === "free") status = `free until ${untilLabel(r, at)}` + (r.minutes != null ? ` · ${dur(r.minutes)}` : "");
+  else if (r.state === "busy") status = `busy until ${hm(r.until)}`;
+  else if (r.state === "closed") status = `building closed`;
+  else status = "no data";
+  const soon = r.state === "free" && r.minutes != null && r.minutes < state.min;
+  const meta = [r.seats ? `${r.seats} seats` : null, r.type].filter(Boolean).join(" · ");
+  const warn = r.state !== "unknown" && !r.hours_known ? ` · <span class="warn">opening hours unknown</span>` : "";
+  const now = r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : "";
+  const busy = r.timeline.filter(i => i[3] === "busy");
+  const evts = busy.length
+    ? busy.map(([s, e, t]) => `<div><time>${s}–${e}</time><span>${esc(t || "booked")}</span></div>`).join("")
+    : `<div><span>No bookings this day.</span></div>`;
+  const id = encodeURIComponent(r.id);
+  return `<div class="card ${r.state}${soon ? " soon" : ""}${state.open.has(r.id) ? " open" : ""}" data-id="${esc(r.id)}">
+    <div class="top"><span class="name">${esc(r.id)}</span><span class="status">${status}</span></div>
+    <div class="meta">${esc(meta)}${warn}</div>${now}
+    ${timelineBar(r, at)}
+    <div class="details">${evts}
+      <div><a href="https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?room=${id}" target="_blank" rel="noopener">Official schedule ↗</a></div>
+    </div></div>`;
+}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function render() {
+  const d = state.data, at = d.at;
+  let rooms = d.rooms.filter(r => (!state.site || r.site === state.site) && (!state.building || r.building === state.building));
+  // Longest free first; rooms without opening-hours data go last (their "free until" is unreliable).
+  const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) || (b.seats || 0) - (a.seats || 0);
+  const free = rooms.filter(r => r.state === "free" && (r.minutes ?? 1e9) >= state.min).sort(byLen);
+  const short = rooms.filter(r => r.state === "free" && (r.minutes ?? 1e9) < state.min).sort(byLen);
+  const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until)).slice(0, 8);
+  const closed = rooms.some(r => r.state === "closed");
+
+  const when = state.when === "now" ? "right now" : new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  $("#summary").innerHTML = `<b>${free.length}</b> room${free.length === 1 ? "" : "s"} free ${when}` +
+    (state.min ? ` for ${dur(state.min)}+` : "") + ` · ${rooms.length} checked`;
+
+  if (!d.last_fetch) {
+    $("#summary").textContent = "No data yet. The first fetch takes about 1–2 minutes, reload then.";
+    $("#list").innerHTML = ""; return;
+  }
+  let html = free.map(r => card(r, at)).join("");
+  if (!free.length) html += `<div class="empty">${closed && !short.length ? "Buildings are closed at this time." : "Nothing free for that long. Try a shorter duration."}</div>`;
+  if (short.length) html += `<h2>Free, but only briefly</h2>` + short.map(r => card(r, at)).join("");
+  if (soonFree.length) html += `<h2>Busy, free soon</h2>` + soonFree.map(r => card(r, at)).join("");
+  $("#list").innerHTML = html;
+
+  const lf = d.last_fetch ? new Date(d.last_fetch).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "never";
+  $("#footer").innerHTML = `Data from ETH Rauminfo, fetched ${lf}. “Free” means nothing is scheduled. The room may still be locked or used informally, and cancellations or short-notice bookings can be missing. Not an official ETH service.`;
+}
+
+// --- controls ---
+function press(group, attr, val) {
+  for (const b of document.querySelectorAll(`#${group} .chip`)) b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)));
+}
+$("#when").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  state.when = b.dataset.when === "now" ? "now" : Number(b.dataset.when);
+  press("when", "when", b.dataset.when); $("#at").value = ""; load();
+});
+$("#at").addEventListener("change", e => {
+  if (!e.target.value) return;
+  state.when = e.target.value; press("when", "when", "-"); load();
+});
+$("#site").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  state.site = state.site === b.dataset.site ? "" : b.dataset.site;   // tap again = all sites
+  store.set("site", state.site); press("site", "site", state.site); fillBuildings(); render();
+});
+$("#building").addEventListener("change", e => { state.building = e.target.value; store.set("building", state.building); render(); });
+$("#dur").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  state.min = Number(b.dataset.min); store.set("min", state.min); press("dur", "min", state.min); render();
+});
+$("#list").addEventListener("click", e => {
+  if (e.target.closest("a")) return;
+  const c = e.target.closest(".card"); if (!c) return;
+  const id = c.dataset.id; state.open.has(id) ? state.open.delete(id) : state.open.add(id);
+  c.classList.toggle("open");
+});
+
+const urlAt = new URLSearchParams(location.search).get("at");   // shareable: /?at=2026-11-12T14:00
+if (urlAt) { state.when = urlAt; $("#at").value = urlAt.slice(0, 16); press("when", "when", "-"); }
+press("site", "site", state.site); press("dur", "min", state.min);
+const INITIAL = /*INITIAL_DATA*/null;
+if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); } else load();
+setInterval(() => { if (state.when === "now") load(); }, 5 * 60 * 1000);
+</script>
+</body>
+</html>

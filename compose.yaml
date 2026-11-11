@@ -1,0 +1,15 @@
+services:
+  freerooms:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      FREEROOMS_REFRESH_HOURS: "2"     # refetch every 2h (~70 s, ~230 requests)
+      # FREEROOMS_BUILDINGS: "HG,CAB,ML"
+      # FREEROOMS_DAYS: "7"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 1m
