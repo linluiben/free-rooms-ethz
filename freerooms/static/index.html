@@ -169,6 +169,15 @@ const hm = iso => iso.slice(11, 16);
 const toMin = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const q = o => new URLSearchParams(o).toString();
+// Mon–Sun (YYYY-MM-DD) of the week containing the date in `iso`. ETH's schedule page
+// needs both `from` and `to`; without `to` its script throws and the timetable stays empty.
+function weekOf(iso) {
+  const d = new Date(iso.slice(0, 10) + "T00:00Z");
+  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+  const from = d.toISOString().slice(0, 10);
+  d.setUTCDate(d.getUTCDate() + 6);
+  return { from, to: d.toISOString().slice(0, 10) };
+}
 function dur(min) {
   if (min == null) return "";
   if (min < 60) return `${min} min`;
@@ -349,7 +358,7 @@ function renderPanel() {
     <div class="evts" style="margin-top:8px">${evts}</div>
     <div class="links">
       <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails.html?${q(loc)}" target="_blank" rel="noopener">Room details ↗</a>
-      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?${q({ room: r.id })}" target="_blank" rel="noopener">Schedule ↗</a>
+      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?${q({ room: r.id, ...weekOf(at) })}" target="_blank" rel="noopener">Schedule ↗</a>
       <a href="${ETH}/staffnet/de/utils/location.html?${q(loc)}" target="_blank" rel="noopener">Location ↗</a>
     </div>
     <h3>About this room</h3>
