@@ -8,7 +8,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours.
 
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
-- One fetch takes about 1 min (0.3 s delay between requests). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
+- One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
 
 > “Free” means *nothing is scheduled*. The room may still be locked, and short-notice bookings or cancellations may be missing. This is not an official ETH service.
 
