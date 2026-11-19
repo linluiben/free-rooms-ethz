@@ -1,0 +1,8 @@
+[
+  {"date_from": "2026-11-11T00:00:00", "date_to": "2026-11-11T07:00:00",
+   "belegungsserie": {"belegungstyp": 8, "veranstaltung": null}},
+  {"date_from": "2026-11-11T22:00:00", "date_to": "2026-11-11T23:59:00",
+   "belegungsserie": {"belegungstyp": 8, "veranstaltung": null}},
+  {"date_from": "2026-11-11T10:00:00",
+   "belegungsserie": {"belegungstyp": 2, "veranstaltung": {"allocationTitle": "Lecture without end", "findetStatt": 1}}}
+]

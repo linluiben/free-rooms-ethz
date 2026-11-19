@@ -35,6 +35,35 @@ CANCELLED_TYPES = {13}    # cancelled event -> room is actually free
 BUSY_TYPES = {2, 5, 11}
 
 
+def validate(alloc: object) -> str | None:
+    """Why a raw allocation is unusable, or None if it looks sane.
+
+    A room with any unusable entry is stored as unknown: silently dropping the
+    entry could hide a booking and make the room look free.
+    """
+    if not isinstance(alloc, dict):
+        return f"not an object: {type(alloc).__name__}"
+    times = []
+    for key in ("date_from", "date_to"):
+        v = alloc.get(key)
+        try:
+            dt = datetime.fromisoformat(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return f"invalid {key}: {v!r}"
+        if dt.tzinfo is not None:  # we store naive Europe/Zurich local time
+            return f"unexpected timezone in {key}: {v!r}"
+        times.append(dt)
+    if times[1] < times[0]:
+        return f"date_to before date_from: {alloc['date_from']} > {alloc['date_to']}"
+    serie = alloc.get("belegungsserie")
+    if serie is not None and not isinstance(serie, dict):
+        return f"belegungsserie is {type(serie).__name__}"
+    event = (serie or {}).get("veranstaltung")
+    if event is not None and not isinstance(event, dict):
+        return f"veranstaltung is {type(event).__name__}"
+    return None
+
+
 def normalize(alloc: dict) -> tuple[str, str, str, str | None, int] | None:
     """Turn one raw allocation into (start, end, kind, title, raw_type), or None to drop it."""
     serie = alloc.get("belegungsserie") or {}
@@ -102,7 +131,7 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
 
     today = datetime.now(TZ).date()
     start, end = today, today + timedelta(days=days)
-    stats = {"rooms": len(rooms), "ok": 0, "empty": 0, "failed": 0, "intervals": 0}
+    stats = {"rooms": len(rooms), "ok": 0, "empty": 0, "failed": 0, "malformed": 0, "intervals": 0}
 
     for i, r in enumerate(rooms, 1):
         rid = query_id(r)
@@ -112,12 +141,25 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
             log.error("[%d/%d] %s: fetch failed: %s", i, len(rooms), rid, e)
             stats["failed"] += 1
             continue
-        rows = [n for a in allocs if (n := normalize(a)) is not None]
-        if not allocs:
+        if isinstance(allocs, list):
+            problems = [validate(a) for a in allocs]
+        else:
+            allocs, problems = [allocs], [f"response is {type(allocs).__name__}, not a list"]
+        bad = [(a, why) for a, why in zip(allocs, problems) if why]
+        rows = [n for a, why in zip(allocs, problems) if not why and (n := normalize(a)) is not None]
+        n_raw = len(allocs)
+        if bad:
+            # Don't trust a partial picture: n_entries=0 shows the room as unknown.
+            # The valid entries are still stored for the timeline.
+            log.warning("[%d/%d] %s: %d malformed entries, marking unknown; first: %s (%r)",
+                        i, len(rooms), rid, len(bad), bad[0][1], bad[0][0])
+            stats["malformed"] += 1
+            n_raw = 0
+        elif not allocs:
             # Every normal room has at least the nightly closure entries.
             log.warning("[%d/%d] %s: empty response (wrong id or unmanaged room?)", i, len(rooms), rid)
             stats["empty"] += 1
-        _save_room(conn, r, rid, rows, len(allocs), start, end)
+        _save_room(conn, r, rid, rows, n_raw, start, end)
         stats["ok"] += 1
         stats["intervals"] += len(rows)
         log.debug("[%d/%d] %s: %d raw, %d kept", i, len(rooms), rid, len(allocs), len(rows))
