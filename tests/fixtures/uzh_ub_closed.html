@@ -1,0 +1,76 @@
+﻿<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>ProgressBar.js - Minimal Example</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://hbzwwws04.uzh.ch/occusense/iframeresizer/iframeResizer.contentWindow.min.js"></script>
+
+
+	<style>
+	.progress {
+		height: 30px;
+	}
+	.progress > svg {
+		height: 100%;
+		display: block;
+	}
+	.progressbar__label {
+		font-weight: bold;
+		font-family: Arial, Helvetica, sans-serif;
+		font-size: 12px;
+		text-align: center;
+		width: 140px;
+	}
+    </style>
+
+</head>
+
+    
+<body style="width: 140px; margin-left: 0px; margin-right: 0px; margin-top: 0px; margin-bottom: 0px;">
+	<div class="progress" id="progress"></div>
+
+    <!-- These are probably out dated so you might want to use newest versions -->
+    <script src="progressbar.js"></script>
+
+    <script>
+	window.onload = function onLoad() {
+    var bar = new ProgressBar.Line('#progress', {
+        color: '#00bb00',
+		strokeWidth: 16,
+		trailColor: '#cc3300',
+		trailWidth: 16,
+        duration: 1000,
+        easing: 'easeInOut',
+		text: {
+			value: 'geschlossen',
+			className: 'progressbar__label',
+			style: {
+				color: '#fff',
+				position: 'absolute',
+				left: '50%',
+				top: '50%',
+				padding: 0,
+				margin: 0,
+				transform: {
+					prefix: true,
+					value: 'translate(-50%, -50%)'
+				}
+			},
+			autoStyleContainer: true,
+			alignToBottom: true
+		},
+		from: { color: '#00bb00' },
+		to: { color: '#00bb00' },
+		step: function(state, bar) {
+			bar.path.setAttribute('stroke', state.color);
+		}
+    });
+
+    bar.animate(0);
+	};
+	</script>
+</body>
+
+</html>

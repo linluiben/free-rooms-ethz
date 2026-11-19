@@ -95,6 +95,10 @@ All times are naive Europe/Zurich local time, as the API returns them.
 
 Separate from the room schedules, `live.py` runs the sources in [`freerooms/sources/`](freerooms/sources/), each on its own interval (live numbers every 5 min, metadata hourly). Every module there that defines `SOURCES` is picked up automatically. A failing source is logged and shown in `/api/health`; it never blocks the others. Places go into the `places` table and **every sample is kept** in `occupancy` (basis for "popular times" later; about 100 places × 288 samples a day stays small). `occupancy.pct` is always the share *occupied*, even for sources that report "% free". `/api/places` returns every place with its latest sample.
 
+Sources:
+
+- **UZH libraries** (`uzh_ub`): The `uzh_ub` live source reads the 12 occupancy widgets from the [UB overview page](https://www.ub.uzh.ch/de/ub-besuchen/belegung-alle.html) every 5 minutes, one request every 0.5 s. A label like "ca. 30% frei von 120" becomes 70 % occupied of 120 seats. "> 95% frei" is stored as 3 % occupied (like the widget's own bar), and "geschlossen" as closed. Traffic light: green below 70 % occupied, yellow below 90 %, red from 90 %. Names, buildings and coordinates are a static table in [`freerooms/sources/uzh_ub.py`](freerooms/sources/uzh_ub.py).
+
 ## Development
 
 ```sh
