@@ -6,6 +6,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 
 - **Rooms view:** free rooms sorted by how long they stay free, with a day timeline. Tap a room for details: today's bookings, seats, windows, sockets, whether food is allowed, a campus map, and links to the official room details, schedule and location pages.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours.
+- **Study spaces view** (`/?view=spaces`, needs `serve --live`): ETH study spaces and ETH/UZH libraries with a traffic light, “~X% free of N”, a trend arrow and today's opening hours (meal times in mensas count as closed for studying). Library floors are listed under their library. You can filter by university, campus and features (quiet, sockets, 24 h, windows, more under “More…”). Places without a live number say “no live data”. A number older than 15 min is greyed out and shows its age. The list refreshes every minute while it's on screen.
 
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
 - One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
@@ -20,7 +21,7 @@ python3 -m freerooms now --min 60     # CLI: rooms free for at least 1h
 python3 -m freerooms serve            # UI on http://127.0.0.1:8000
 ```
 
-`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`.
+`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`. `/api/places` lists the study places with their latest occupancy sample.
 
 `/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
 

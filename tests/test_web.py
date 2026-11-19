@@ -50,5 +50,30 @@ class Detail(unittest.TestCase):
             httpd.shutdown()
 
 
+class Spaces(unittest.TestCase):
+    def test_places_inlined_only_for_spaces_view(self):
+        import tempfile, os
+        from freerooms.places import Place, Sample, add_samples, upsert_places, utc_iso
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        conn = store.connect(db)
+        upsert_places(conn, [Place(id="t:1", uni="ETH", name="Lib </script> 1", source="t", hours=["Mon - Fri: 07.00 - 19.00"])])
+        add_samples(conn, [Sample(place_id="t:1", ts=utc_iso(), status="green", pct=20.0)])
+        conn.commit()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db, FakeClient()))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_port}"
+        try:
+            with urllib.request.urlopen(base + "/api/places") as r:
+                self.assertEqual(json.load(r)["places"][0]["latest"]["pct"], 20.0)
+            with urllib.request.urlopen(base + "/?view=spaces") as r:
+                html = r.read().decode()
+            self.assertNotIn("/*INITIAL_PLACES*/null", html)
+            self.assertIn("Lib <\\/script> 1", html)       # can't close the inline <script>
+            with urllib.request.urlopen(base + "/") as r:
+                self.assertIn("/*INITIAL_PLACES*/null", r.read().decode())
+        finally:
+            httpd.shutdown()
+
+
 if __name__ == "__main__":
     unittest.main()
