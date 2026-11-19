@@ -68,7 +68,7 @@ cron / --refresh ──► fetch.py ──► ETH Rauminfo API (rooms list + per
    | 13, or `findetStatt: 0` | cancelled | dropped (= free) |
    | anything else | | busy + warning in the log |
 
-4. At time *t*, a room is busy or closed if an interval contains *t*. Back-to-back intervals are merged, including across midnight (`23:59` → `00:00`). Otherwise the room is free until the next interval starts. Rooms with no entries at all are shown as *unknown*. Rooms without closure entries get an "opening hours unknown" note and are listed last.
+4. At time *t*, a room is busy or closed if an interval contains *t*. Back-to-back intervals are merged, including across midnight (`23:59` → `00:00`). Otherwise the room is free until the next interval starts. Rooms with no entries at all, or with any malformed entry (missing/invalid `date_from`/`date_to`, `date_to` before `date_from`, unexpected shape), are shown as *unknown* rather than free, and a warning is logged. Rooms without closure entries get an "opening hours unknown" note and are listed last.
 5. A building's opening hours for a day are the gap between its closure entries (from the first opening to the last closing), taken as the most common value among its rooms.
 6. Room details (`GET /v2/rooms/{building floor room}&lang=en`) are fetched on demand and cached in SQLite for 7 days. Only ids that are in the `rooms` table are accepted, so the endpoint can't be used as an open proxy.
 

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     workplaces  INTEGER,            -- computer rooms have workplaces instead of seats
     site        TEXT,               -- locationName, e.g. 'Zürich Zentrum'
     fetched_at  TEXT,               -- last successful allocation fetch (UTC ISO)
-    n_entries   INTEGER             -- raw entries in last fetch (0 => unknown)
+    n_entries   INTEGER             -- raw entries in last fetch (0 => unknown: empty or malformed)
 );
 CREATE TABLE IF NOT EXISTS intervals (
     room_id     TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
