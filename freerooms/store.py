@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS intervals (
     room_id     TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
     start       TEXT NOT NULL,
     end         TEXT NOT NULL,
-    kind        TEXT NOT NULL,      -- 'busy' | 'closed'
+    kind        TEXT NOT NULL,      -- 'busy' | 'closed' | 'cancelled' (display only, never blocks)
     title       TEXT,
     raw_type    INTEGER
 );

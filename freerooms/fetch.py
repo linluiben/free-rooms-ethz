@@ -27,7 +27,7 @@ def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
 
 
 CLOSED_TYPES = {7, 8}     # 8: nightly/weekend building closure, 7: holiday closure
-CANCELLED_TYPES = {13}    # cancelled event -> room is actually free
+CANCELLED_TYPES = {13}    # not held this semester (VVZ: "Findet nicht statt") -> room is free
 # 2: regular booking (lecture, exercise, meeting, event)
 # 5: construction / repair / technical reservation ("Umbau", "Reparatur")
 # 11: seen on doctoral courses (D-MATH), otherwise like 2
@@ -35,13 +35,16 @@ BUSY_TYPES = {2, 5, 11}
 
 
 def normalize(alloc: dict) -> tuple[str, str, str, str | None, int] | None:
-    """Turn one raw allocation into (start, end, kind, title, raw_type), or None to drop it."""
+    """Turn one raw allocation into (start, end, kind, title, raw_type), or None to drop it.
+
+    Cancelled entries are kept as kind 'cancelled' for display only; they never block a room.
+    """
     serie = alloc.get("belegungsserie") or {}
     btype = serie.get("belegungstyp")
     event = serie.get("veranstaltung") or {}
     if btype in CANCELLED_TYPES or event.get("findetStatt") == 0:
-        return None
-    if btype in CLOSED_TYPES:
+        kind = "cancelled"
+    elif btype in CLOSED_TYPES:
         kind = "closed"
     else:
         if btype not in BUSY_TYPES:

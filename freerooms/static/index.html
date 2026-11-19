@@ -57,6 +57,7 @@
   .bar { position: relative; height: 8px; background: var(--free-bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .bar i { position: absolute; top: 0; bottom: 0; background: var(--busy); opacity: .75; }
   .bar .off { background: var(--closed); opacity: .35; }
+  .bar .cx { background: repeating-linear-gradient(135deg, var(--closed) 0 2px, transparent 2px 5px); opacity: .6; }
   .bar .now { background: var(--text); width: 2px; opacity: 1; }
   .ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
   .ratio { position: relative; height: 6px; background: var(--chip); border-radius: 3px; margin-top: 8px; overflow: hidden; }
@@ -92,6 +93,7 @@
   #panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 20px 0 6px; }
   .evts div { display: flex; gap: 10px; padding: 3px 0; font-size: 14px; }
   .evts time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 92px; flex: none; }
+  .evts .cx { color: var(--muted); }
   .kv { display: grid; grid-template-columns: minmax(110px, 40%) 1fr; gap: 4px 12px; font-size: 14px; margin: 0; }
   .kv dt { color: var(--muted); }
   .kv dd { margin: 0; }
@@ -233,8 +235,10 @@ function timelineBar(timeline, atISO, ticks) {
   const span = (DAY_END - DAY_START) * 60, x = m => Math.max(0, Math.min(100, (m - DAY_START * 60) / span * 100));
   let html = "";
   for (const [s, e, , kind] of timeline) {
+    if (kind === "cancelled" && !ticks) continue;  // cancelled entries only in the room panel, not on cards
     const a = x(toMin(s)), b = x(e === "23:59" ? 1440 : toMin(e));
-    if (b > a) html += `<i${kind === "closed" ? ' class="off"' : ""} style="left:${a}%;width:${b - a}%"></i>`;
+    const cls = kind === "closed" ? "off" : kind === "cancelled" ? "cx" : "";
+    if (b > a) html += `<i${cls ? ` class="${cls}"` : ""} style="left:${a}%;width:${b - a}%"></i>`;
   }
   html += `<i class="now" style="left:calc(${x(toMin(hm(atISO)))}% - 1px)"></i>`;
   const t = ticks ? `<div class="ticks"><span>${DAY_START}</span><span>10</span><span>13</span><span>16</span><span>19</span><span>${DAY_END}</span></div>` : "";
@@ -341,8 +345,11 @@ function renderPanel() {
   const at = state.data.at;
   const loc = { building: r.building, floor: r.floor, room: r.room };
   const day = at.slice(0, 10) === state.data.now.slice(0, 10) ? "Today" : new Date(at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-  const busy = r.timeline.filter(i => i[3] === "busy");
-  const evts = busy.length ? busy.map(([s, e, t]) => `<div><time>${s}–${e}</time><span>${esc(t || "booked")}</span></div>`).join("")
+  // Cancelled entries (type 13 / findetStatt 0) are listed struck through: other tools show them as booked.
+  const busy = r.timeline.filter(i => i[3] === "busy" || i[3] === "cancelled");
+  const evts = busy.length ? busy.map(([s, e, t, k]) => k === "cancelled"
+      ? `<div class="cx" title="Not held: the room is free"><time>${s}–${e}</time><span>cancelled: <s>${esc(t || "booking")}</s></span></div>`
+      : `<div><time>${s}–${e}</time><span>${esc(t || "booked")}</span></div>`).join("")
                            : `<div><span class="meta">No bookings.</span></div>`;
   const hours = hoursText(r.building);
   const svg = `${ETH}/content/dam/ethz/common/images/arealplaene/gebaeudeorientierung/${encodeURIComponent(r.building)}.svg`;

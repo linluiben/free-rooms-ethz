@@ -65,7 +65,7 @@ cron / --refresh ──► fetch.py ──► ETH Rauminfo API (rooms list + per
    | 11 | seen on doctoral courses | busy |
    | 8 | building closed (nights, weekends; hours differ per building, e.g. ETF closes 20:00) | closed |
    | 7 | holiday closure | closed |
-   | 13, or `findetStatt: 0` | cancelled | dropped (= free) |
+   | 13, or `findetStatt: 0` | not held ("Findet dieses Semester nicht statt" in the course catalogue, verified via VVZ; ETH's own allocation page hides these too) | free; kept as *cancelled* and shown struck through in the room timeline |
    | anything else | | busy + warning in the log |
 
 4. At time *t*, a room is busy or closed if an interval contains *t*. Back-to-back intervals are merged, including across midnight (`23:59` → `00:00`). Otherwise the room is free until the next interval starts. Rooms with no entries at all are shown as *unknown*. Rooms without closure entries get an "opening hours unknown" note and are listed last.
