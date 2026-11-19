@@ -1,0 +1,396 @@
+{
+ "data": [
+  {
+   "type": "study_space",
+   "id": "114727",
+   "attributes": {
+    "title": "BSS K 14",
+    "roomGlobalIdentifier": "BSSK14",
+    "locationPageUrl": "/en/utils/location.html.html?building=BSS&floor=K&room=14",
+    "description": "Science Lounge",
+    "seats": 80,
+    "building": "BSS",
+    "campus": "AC",
+    "roomType": {
+     "code": "3300"
+    },
+    "hours": [
+     "Mon - Fri: 07.00 - 19.00",
+     "Sat - Sun: Closed",
+     "Meal time: Mon - Fri: 11.30 - 13.30",
+     "Learning environment outside meal times"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": false,
+    "stateLabel": "closed",
+    "features": [
+     {
+      "key": "aus.fenster",
+      "label": "Windows | available",
+      "filterable": true
+     },
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromwenig",
+      "label": "Sockets | few",
+      "filterable": false
+     },
+     {
+      "key": "food.mensa",
+      "label": "Mensa",
+      "filterable": false
+     },
+     {
+      "key": "um.laut",
+      "label": "Noisy environment",
+      "filterable": false
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": false,
+    "nextOpenDate": "2026-11-20",
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/114727/images/BSS_K_014_2.jpg"
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "51955",
+   "attributes": {
+    "title": "CHN D 8",
+    "roomGlobalIdentifier": "CHND8",
+    "locationPageUrl": "/en/utils/location.html.html?building=CHN&floor=D&room=8",
+    "description": "Grüner Boden",
+    "seats": 0,
+    "building": "CHN",
+    "campus": "ZZ",
+    "roomType": {
+     "code": "3510"
+    },
+    "hours": [
+     "Mon - Fri: 06.00 - 20.30",
+     "Sat - Sun: Closed",
+     "24-hour access via ETH card"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": true,
+    "stateLabel": "open",
+    "features": [
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromwenig",
+      "label": "Sockets | few",
+      "filterable": false
+     },
+     {
+      "key": "food.cafeteria",
+      "label": "Cafeteria / Bistro",
+      "filterable": false
+     },
+     {
+      "key": "um.laut",
+      "label": "Noisy environment",
+      "filterable": false
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": true,
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/51955/images/CHN_D_8_7.jpg"
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "69065",
+   "attributes": {
+    "title": "HCI F 30.0017",
+    "roomGlobalIdentifier": "HCIF30.0017",
+    "locationPageUrl": "/en/utils/location.html.html?building=HCI&floor=F&room=30.0017",
+    "description": "Lichthof HCI F",
+    "seats": 18,
+    "building": "HCI",
+    "campus": "ZH",
+    "roomType": {
+     "code": "3660"
+    },
+    "hours": [
+     "Mon - Fri: 06.30 - 22.00",
+     "Sat: 09.00 - 19.00",
+     "Sun: 10.00 - 16.00",
+     "24-hour access via ETH card"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": true,
+    "stateLabel": "open",
+    "features": [
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.rollstuhlap",
+      "label": "Wheelchair accessible desks",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromviel",
+      "label": "Sockets | many",
+      "filterable": true
+     },
+     {
+      "key": "um.laut",
+      "label": "Noisy environment",
+      "filterable": false
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": true,
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/69065/images/HCI_F_30-0017_3.jpg"
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "33079",
+   "attributes": {
+    "title": "HG H 30.1",
+    "roomGlobalIdentifier": "HGH30.1",
+    "locationPageUrl": "/en/utils/location.html.html?building=HG&floor=H&room=30.1",
+    "description": "ETH-Bibliothek, Lesesaal",
+    "seats": 150,
+    "building": "HG",
+    "campus": "ZZ",
+    "roomType": {
+     "code": "3100"
+    },
+    "hours": [
+     "Sat - Sun: 08.00 - 17.00",
+     "Mon - Fri: 08.00 - 22.00"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": true,
+    "stateLabel": "open",
+    "features": [
+     {
+      "key": "aus.bildschirmap",
+      "label": "Screen workstations",
+      "filterable": true
+     },
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromviel",
+      "label": "Sockets | many",
+      "filterable": true
+     },
+     {
+      "key": "um.ruhig",
+      "label": "Quiet environment",
+      "filterable": true
+     }
+    ],
+    "has24HourAccess": false,
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/33079/images/HG_Bibliothek_1.jpg",
+    "occupancy": {
+     "activeFlag": true,
+     "de": "ETH-Tag am Samstag, 21. November. Aufgrund des ETH-Tages bleibt die ETH-Bibliothek im Hauptgebäude am Sa, 21.11.26 den ganzen Tag geschlossen.",
+     "en": "ETH Day on Saturday, 21 November. Due to ETH Day, the ETH Library in the Main Building (HG) will be closed all day on Saturday, 21 November 2026."
+    }
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "44371",
+   "attributes": {
+    "title": "HIL E 19.1",
+    "roomGlobalIdentifier": "HILE19.1",
+    "locationPageUrl": "/en/utils/location.html.html?building=HIL&floor=E&room=19.1",
+    "description": "Lernraum HIL E 19.1",
+    "seats": 0,
+    "building": "HIL",
+    "campus": "ZH",
+    "roomType": {
+     "code": "3660"
+    },
+    "hours": [
+     "Mon - Fri: 07.00 - 22.00",
+     "Sat: 08.00 - 12.00",
+     "Sun: Closed"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": true,
+    "stateLabel": "open",
+    "features": [
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.rollstuhlap",
+      "label": "Wheelchair accessible desks",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromviel",
+      "label": "Sockets | many",
+      "filterable": true
+     },
+     {
+      "key": "um.normal",
+      "label": "Ambient noise",
+      "filterable": true
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": false,
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/44371/images/HIL_19.1_-001.jpg"
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "37213",
+   "attributes": {
+    "title": "HPR D 70.2",
+    "roomGlobalIdentifier": "HPRD70.2",
+    "locationPageUrl": "/en/utils/location.html.html?building=HPR&floor=D&room=70.2",
+    "description": "food market",
+    "seats": 380,
+    "building": "HPR",
+    "campus": "ZH",
+    "roomType": {
+     "code": "3300"
+    },
+    "hours": [
+     "Mon - Fri: 07.00 - 20.30",
+     "Sat - Sun: Closed",
+     "Meal time: Mon - Fri: 11.15 - 13.45",
+     "24-hour access via ETH card",
+     "Learning environment outside meal times"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": true,
+    "stateLabel": "open",
+    "features": [
+     {
+      "key": "aus.rollstuhl",
+      "label": "Wheelchair accessible",
+      "filterable": true
+     },
+     {
+      "key": "aus.rollstuhlap",
+      "label": "Wheelchair accessible desks",
+      "filterable": true
+     },
+     {
+      "key": "aus.stromwenig",
+      "label": "Sockets | few",
+      "filterable": false
+     },
+     {
+      "key": "food.mensa",
+      "label": "Mensa",
+      "filterable": false
+     },
+     {
+      "key": "um.laut",
+      "label": "Noisy environment",
+      "filterable": false
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": true,
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/37213/images/HPR_D_70-2_9.jpg"
+   }
+  },
+  {
+   "type": "study_space",
+   "id": "31192",
+   "attributes": {
+    "title": "MM B 79",
+    "roomGlobalIdentifier": "MMB79",
+    "locationPageUrl": "/en/utils/location.html.html?building=MM&floor=B&room=79",
+    "description": "Mensa Polyterrasse",
+    "seats": 650,
+    "building": "MM",
+    "campus": "ZZ",
+    "roomType": {
+     "code": "3300"
+    },
+    "hours": [
+     "Mon - Fri: 06.00 - 21.00",
+     "Sat - Sun: Closed",
+     "Meal times: Mon - Fri: 11.15 - 14.00 and 17.30 - 19.30",
+     "Learning environment outside meal times"
+    ],
+    "nextMealChangeAt": 1795129200000,
+    "isOpen": false,
+    "stateLabel": "closed",
+    "features": [
+     {
+      "key": "aus.stromwenig",
+      "label": "Sockets | few",
+      "filterable": false
+     },
+     {
+      "key": "food.mensa",
+      "label": "Mensa",
+      "filterable": false
+     },
+     {
+      "key": "um.laut",
+      "label": "Noisy environment",
+      "filterable": false
+     },
+     {
+      "key": "work.coworking",
+      "label": "Coworking area",
+      "filterable": false
+     }
+    ],
+    "has24HourAccess": false,
+    "nextOpenDate": "2026-11-20",
+    "image": "/bin/ethz/studyspaces/image?path=/v1/rooms/31192/images/MM_B_79_6.jpg",
+    "occupancy": {
+     "activeFlag": true
+    }
+   }
+  }
+ ],
+ "meta": {
+  "resultsTotal": 7,
+  "resultsOnPage": 7,
+  "pageSize": 10,
+  "page": 1,
+  "pagesTotal": 7
+ }
+}
