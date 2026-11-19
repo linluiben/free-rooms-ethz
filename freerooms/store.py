@@ -48,6 +48,35 @@ CREATE TABLE IF NOT EXISTS source_health (
     counts        TEXT,             -- JSON, row counts of the last success
     max_age_s     INTEGER           -- older data counts as stale
 );
+-- Study places (study spaces, libraries, library floors) with live occupancy.
+CREATE TABLE IF NOT EXISTS places (
+    id            TEXT PRIMARY KEY, -- '<source>:<native id>', e.g. 'eth_studyspaces:HGH30.1', 'uzh_ub:10'
+    parent_id     TEXT,             -- e.g. a library floor points to the whole library
+    uni           TEXT NOT NULL,    -- 'ETH' | 'UZH'
+    campus        TEXT,             -- e.g. 'Zentrum', 'Hönggerberg', 'Irchel'
+    building      TEXT,
+    name          TEXT NOT NULL,
+    seats         INTEGER,
+    hours_json    TEXT,             -- source-specific opening hours, JSON
+    features_json TEXT,             -- JSON list of {key, label}
+    lat           REAL,
+    lon           REAL,
+    source        TEXT NOT NULL,    -- source key that owns this row (see live.py)
+    url           TEXT,
+    updated_at    TEXT              -- UTC ISO
+);
+-- Every live sample is kept (basis for "popular times"). pct is the share OCCUPIED, 0-100.
+CREATE TABLE IF NOT EXISTS occupancy (
+    place_id  TEXT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+    ts        TEXT NOT NULL,        -- UTC ISO: when the source measured it (else fetch time)
+    status    TEXT,                 -- 'green' | 'yellow' | 'red' | 'unknown'
+    pct       REAL,                 -- occupied share in percent, NULL if unknown
+    count     REAL,                 -- people present (some sources give fractions)
+    max       INTEGER,              -- capacity the source compares against
+    trend     INTEGER,              -- -1 emptying, 0 steady, 1 filling, NULL unknown
+    closed    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (place_id, ts)
+);
 """
 
 DEFAULT_MAX_AGE = 4 * 3600
