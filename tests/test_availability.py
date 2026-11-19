@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 
 from freerooms import store
-from freerooms.availability import Interval, building_hours, open_hours, room_status
+from freerooms.availability import Interval, building_hours, open_hours, query, room_status
 from freerooms.fetch import load_allowlist, normalize, select_rooms
 
 D = datetime.fromisoformat
@@ -45,6 +45,14 @@ class RoomStatus(unittest.TestCase):
     def test_no_data_is_unknown(self):
         self.assertEqual(room_status([], D("2026-11-11T10:00"), False).state, "unknown")
 
+    def test_cancelled_never_blocks(self):
+        ivs = day(("2026-11-11T14:00", "2026-11-11T18:00", "cancelled"),
+                  ("2026-11-11T19:00", "2026-11-11T20:00", "busy"))
+        st = room_status(ivs, D("2026-11-11T15:00"), True)
+        self.assertEqual((st.state, st.until, st.next_kind), ("free", D("2026-11-11T19:00"), "busy"))
+        st = room_status(ivs, D("2026-11-11T12:00"), True)
+        self.assertEqual((st.state, st.until), ("free", D("2026-11-11T19:00")))
+
     def test_outside_window_is_unknown(self):
         st = room_status(day(), D("2026-11-20T10:00"), True, window_end=D("2026-11-19T00:00"))
         self.assertEqual(st.state, "unknown")
@@ -79,6 +87,25 @@ class OpeningHours(unittest.TestCase):
         self.assertEqual(building_hours(conn, D("2026-11-11T12:00")), {"A": {"open": "07:00", "close": "22:00"}})
 
 
+class Query(unittest.TestCase):
+    def test_cancelled_shown_in_timeline_but_room_free(self):
+        conn = store.connect(":memory:")
+        conn.execute("INSERT INTO rooms(id, building, floor, room, n_entries) VALUES ('HCI F 8', 'HCI', 'F', '8', 3)")
+        conn.executemany("INSERT INTO intervals(room_id, start, end, kind, title, raw_type) VALUES ('HCI F 8',?,?,?,?,?)", [
+            ("2026-11-19T00:00:00", "2026-11-19T08:00:00", "closed", None, 8),
+            ("2026-11-19T14:00:00", "2026-11-19T18:00:00", "cancelled", "Unveiling Habitats", 13),
+            ("2026-11-19T22:00:00", "2026-11-19T23:59:00", "closed", None, 8)])
+        conn.execute("INSERT INTO rooms(id, building, floor, room, n_entries) VALUES ('X 1', 'X', 'F', '1', 1)")
+        conn.execute("INSERT INTO intervals(room_id, start, end, kind, title, raw_type) VALUES "
+                     "('X 1', '2026-11-19T14:00:00', '2026-11-19T18:00:00', 'cancelled', 'Gone', 13)")
+        r, x = query(conn, D("2026-11-19T15:00"))
+        self.assertEqual((r["state"], r["until"], r["reason"], r["hours_known"]), ("free", "2026-11-19T22:00", None, True))
+        self.assertIn(["14:00", "18:00", "Unveiling Habitats", "cancelled"], r["timeline"])
+        # Only cancelled entries: free with no end, and no closure data -> opening hours unknown.
+        self.assertEqual((x["state"], x["until"], x["hours_known"]), ("free", None, False))
+        self.assertEqual(building_hours(conn, D("2026-11-19T15:00")), {"HCI": {"open": "08:00", "close": "22:00"}})
+
+
 def raw(btype, findet=1, title="X"):
     v = None if btype in (7, 8) else {"allocationTitle": title, "findetStatt": findet}
     return {"date_from": "2026-11-11T10:00:00", "date_to": "2026-11-11T12:00:00",
@@ -93,9 +120,11 @@ class Normalize(unittest.TestCase):
         self.assertEqual(normalize(raw(8))[2], "closed")
         self.assertEqual(normalize(raw(7))[2], "closed")
 
-    def test_cancelled_dropped(self):
-        self.assertIsNone(normalize(raw(13, findet=0)))
-        self.assertIsNone(normalize(raw(2, findet=0)))
+    def test_cancelled_kept_as_cancelled(self):
+        self.assertEqual(normalize(raw(13, findet=0, title="Unveiling Habitats"))[2:],
+                         ("cancelled", "Unveiling Habitats", 13))
+        self.assertEqual(normalize(raw(2, findet=0))[2], "cancelled")
+        self.assertEqual(normalize(raw(13))[2], "cancelled")
 
     def test_unknown_type_is_busy(self):
         with self.assertLogs("freerooms.fetch", "WARNING"):
