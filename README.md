@@ -18,6 +18,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 python3 -m freerooms fetch            # ~1 min, writes data/freerooms.sqlite
 python3 -m freerooms now --min 60     # CLI: rooms free for at least 1h
 python3 -m freerooms serve            # UI on http://127.0.0.1:8000
+python3 -m freerooms serve --live     # ... plus live study-space occupancy every 5 min
 ```
 
 `/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`.
@@ -36,6 +37,7 @@ Options (flags or env vars):
 | `--ratelimit-pause` | `FREEROOMS_RATELIMIT_PAUSE` | `1` | seconds between requests while the limit is low |
 | `--retry-after-default` | `FREEROOMS_RETRY_AFTER_DEFAULT` | `60` | wait after a `429` without a usable `Retry-After` |
 | `--retry-after-max` | `FREEROOMS_RETRY_AFTER_MAX` | `300` | never wait longer than this after a `429` |
+| `--live` (serve) | `FREEROOMS_LIVE` | off | also run the live occupancy sources in the background |
 | `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours |
 | `--stale-hours` | `FREEROOMS_STALE_HOURS` | `4` | mark data stale after N hours (with `--refresh`, at least 1.5× the interval) |
 | `--host` / `--port` | `FREEROOMS_HOST` / `_PORT` | `127.0.0.1` / `8000` | |
@@ -50,7 +52,7 @@ mkdir -p data && docker compose up -d --build   # serves :8000, refetches every 
 
 The container runs as uid 1000, so `./data` must be writable by that user. Put it behind your reverse proxy (Caddy/Traefik/nginx) if it should be reachable from outside.
 
-Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2`. Alternatively, run `serve` without `--refresh` and add a cron job for `python3 -m freerooms fetch` (e.g. `0 6-21/2 * * *`).
+Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2 --live`. Alternatively, run `serve` without `--refresh`/`--live` and use cron: `python3 -m freerooms fetch` for the rooms (e.g. `0 6-21/2 * * *`) and `python3 -m freerooms live --once` for live occupancy (`*/5 * * * *`; each source still only runs when it is due, e.g. the ETH study-space list hourly).
 
 ## How it works
 
@@ -88,6 +90,10 @@ The API also lists rooms managed by individual departments (e.g. HG G 19.1). Tho
 The schedule page's "back to room details" link goes to whichever room's details page you last opened on ethz.ch, because ETH stores it in your browser. If you open a schedule straight from this tool, "back" can therefore lead to a different room. The *Room details* link avoids this. The floor plan with the room highlighted (on the *Location* page) needs an ETH login, so the UI shows ETH's public campus map instead.
 
 All times are naive Europe/Zurich local time, as the API returns them.
+
+### Live occupancy (study spaces and libraries)
+
+Separate from the room schedules, `live.py` runs the sources in [`freerooms/sources/`](freerooms/sources/), each on its own interval (live numbers every 5 min, metadata hourly). Every module there that defines `SOURCES` is picked up automatically. A failing source is logged and shown in `/api/health`; it never blocks the others. Places go into the `places` table and **every sample is kept** in `occupancy` (basis for "popular times" later; about 100 places × 288 samples a day stays small). `occupancy.pct` is always the share *occupied*, even for sources that report "% free". `/api/places` returns every place with its latest sample.
 
 ## Development
 

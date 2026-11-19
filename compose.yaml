@@ -8,6 +8,7 @@ services:
       - ./data:/data
     environment:
       FREEROOMS_REFRESH_HOURS: "2"     # refetch every 2h (~1 min, ~185 requests)
+      FREEROOMS_LIVE: "1"              # live study-space/library occupancy every 5 min
       # FREEROOMS_BUILDINGS: "HG,CAB,ML"
       # FREEROOMS_DAYS: "7"
     healthcheck:
