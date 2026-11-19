@@ -89,6 +89,10 @@ The schedule page's "back to room details" link goes to whichever room's details
 
 All times are naive Europe/Zurich local time, as the API returns them.
 
+### UZH library occupancy
+
+The `uzh_ub` live source reads the 12 occupancy widgets from the [UB overview page](https://www.ub.uzh.ch/de/ub-besuchen/belegung-alle.html) every 5 minutes, one request every 0.5 s. A label like "ca. 30% frei von 120" becomes 70 % occupied of 120 seats. "> 95% frei" is stored as 3 % occupied (like the widget's own bar), and "geschlossen" as closed. Traffic light: green below 70 % occupied, yellow below 90 %, red from 90 %. Names, buildings and coordinates are a static table in [`freerooms/sources/uzh_ub.py`](freerooms/sources/uzh_ub.py).
+
 ## Development
 
 ```sh
