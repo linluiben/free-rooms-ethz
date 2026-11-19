@@ -18,6 +18,7 @@ DEFAULT_TYPECODES = ("3430", "3420", "3650")
 DEFAULT_SITES = ("Zürich Zentrum", "Zürich Hönggerberg")
 
 ROOMS_FILE = Path(__file__).with_name("rooms.txt")
+SOURCE = "eth_rooms"      # key in store.source_health
 
 
 def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
@@ -69,7 +70,23 @@ def select_rooms(rooms: list[dict], typecodes=DEFAULT_TYPECODES, sites=DEFAULT_S
 
 def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7,
         buildings: tuple[str, ...] | None = None, sites=DEFAULT_SITES,
-        typecodes=DEFAULT_TYPECODES) -> dict:
+        typecodes=DEFAULT_TYPECODES, max_age: float | None = None) -> dict:
+    """Fetch everything. `max_age` (seconds): when the data should count as stale (default 4 h)."""
+    try:
+        stats = _run(conn, client, days, buildings, sites, typecodes)
+    except Exception as e:
+        store.record_attempt(conn, SOURCE, error=f"{type(e).__name__}: {e}", max_age=max_age)
+        raise
+    if stats["rooms"] and not stats["ok"]:
+        store.record_attempt(conn, SOURCE, error=f"all {stats['rooms']} allocation fetches failed", max_age=max_age)
+        raise RuntimeError("fetch failed for every room")
+    store.record_attempt(conn, SOURCE, counts=stats, max_age=max_age)
+    store.set_meta(conn, "last_fetch", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    conn.commit()
+    return stats
+
+
+def _run(conn, client, days, buildings, sites, typecodes) -> dict:
     client = client or ApiClient()
     all_rooms = client.rooms()
     allow = load_allowlist()
@@ -105,7 +122,6 @@ def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7
         stats["intervals"] += len(rows)
         log.debug("[%d/%d] %s: %d raw, %d kept", i, len(rooms), rid, len(allocs), len(rows))
 
-    store.set_meta(conn, "last_fetch", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     store.set_meta(conn, "window", f"{start.isoformat()}/{end.isoformat()}")
     conn.commit()
     log.info("fetch done: %s", stats)

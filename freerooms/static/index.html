@@ -54,6 +54,8 @@
   .unknown .status, .s-unknown { color: var(--closed); }
   .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
   .warn { color: var(--warn); }
+  .stale { color: var(--warn); border: 1px solid currentColor; border-radius: 10px; padding: 8px 12px; margin: 4px 0 10px; font-size: 14px; }
+  .stale b { color: var(--text); }
   .bar { position: relative; height: 8px; background: var(--free-bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .bar i { position: absolute; top: 0; bottom: 0; background: var(--busy); opacity: .75; }
   .bar .off { background: var(--closed); opacity: .35; }
@@ -136,6 +138,7 @@
   </div>
 </header>
 <main class="wrap">
+  <div class="stale" id="stale" role="status" hidden></div>
   <div class="summary" id="summary">Loading…</div>
   <div id="list"></div>
   <footer id="footer"></footer>
@@ -203,6 +206,26 @@ function hoursText(b) {
   const h = state.data.buildings?.[b];
   if (!h) return null;
   return h.closed ? "closed all day" : `open ${h.open}–${h.close}`;
+}
+const SOURCE_NAMES = { eth_rooms: "Room bookings" };
+function ago(iso) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  if (min < 1) return "just now";
+  if (min < 90) return `${min} min ago`;
+  if (min < 48 * 60) return `${Math.round(min / 60)} h ago`;
+  return `${Math.round(min / 1440)} days ago`;
+}
+// Freshness is judged against the browser clock, so it keeps ticking between reloads.
+function renderHealth(d) {
+  const srcs = Object.entries(d.health?.sources || {});
+  const stale = srcs.filter(([, s]) => !s.last_success || Date.now() - new Date(s.last_success) > s.max_age_s * 1000);
+  $("#stale").hidden = !stale.length;
+  $("#stale").innerHTML = stale.map(([k, s]) => `<b>${esc(SOURCE_NAMES[k] || k)} may be out of date</b>: ` +
+    (s.last_success ? `last updated ${ago(s.last_success)}` : "never updated") +
+    (s.last_error ? ", the last update failed" : "") + ". Check ETH's own room schedule before relying on it.").join("<br>");
+  const rooms = d.health?.sources?.eth_rooms;
+  if (rooms?.last_success) $("#summary").insertAdjacentHTML("beforeend",
+    ` · <span${stale.length ? ' class="warn"' : ""}>updated ${ago(rooms.last_success)}</span>`);
 }
 const goodFor = r => r.state === "free" && (r.minutes ?? 1e9) >= state.min;
 
@@ -306,6 +329,7 @@ function render() {
   for (const b of document.querySelectorAll("#view button")) b.setAttribute("aria-pressed", String(b.dataset.view === state.view));
   $("#building").hidden = state.view === "buildings";
   (state.view === "buildings" ? renderBuildings : renderRooms)(d, at);
+  renderHealth(d);
   const lf = new Date(d.last_fetch).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" });
   $("#footer").innerHTML = `Data from ETH Rauminfo, fetched ${lf}. Only centrally managed rooms (Rektoratsräume) are listed, since other rooms are booked through channels that aren't published. “Free” means nothing is scheduled. The room may still be locked or used informally, and short-notice bookings can be missing. Not an official ETH service.`;
   if (state.room) renderPanel();
