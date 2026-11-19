@@ -520,7 +520,7 @@ function parseHours(lines, today) {
   }
   return out;
 }
-const is24 = p => !!(p.hours && p.hours.has24HourAccess) || p.features.some(f => /24/.test(f.key)) ||
+const is24 = p => !!(p.hours && (p.hours.has24HourAccess || p.hours.access_24h)) || p.features.some(f => /24/.test(f.key)) ||
   hoursLines(p.hours).some(l => /24[- ]?(h\b|hour|std|stunden)/i.test(l));
 const inRange = (min, [s, e]) => min >= toMin(s) && min < (e === "00:00" ? 1440 : toMin(e));
 const fmtRanges = rs => rs.map(([s, e]) => `${s}–${e}`).join(", ");
