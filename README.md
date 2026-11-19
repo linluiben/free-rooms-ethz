@@ -8,7 +8,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours.
 
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
-- One fetch takes about 1 min (0.3 s delay between requests). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
+- One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
 
 > “Free” means *nothing is scheduled*. The room may still be locked, and short-notice bookings or cancellations may be missing. This is not an official ETH service.
 
@@ -22,6 +22,8 @@ python3 -m freerooms serve            # UI on http://127.0.0.1:8000
 
 `/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`.
 
+`/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
+
 Options (flags or env vars):
 
 | Flag | Env | Default | |
@@ -30,7 +32,12 @@ Options (flags or env vars):
 | `--days` | `FREEROOMS_DAYS` | `7` | how far ahead to fetch |
 | `--buildings` | `FREEROOMS_BUILDINGS` | all | e.g. `HG,CAB,ML` |
 | `--delay` | `FREEROOMS_DELAY` | `0.3` | seconds between API requests |
+| `--ratelimit-low` | `FREEROOMS_RATELIMIT_LOW` | `5` | slow down when `x-ratelimit-remaining` is at or below this |
+| `--ratelimit-pause` | `FREEROOMS_RATELIMIT_PAUSE` | `1` | seconds between requests while the limit is low |
+| `--retry-after-default` | `FREEROOMS_RETRY_AFTER_DEFAULT` | `60` | wait after a `429` without a usable `Retry-After` |
+| `--retry-after-max` | `FREEROOMS_RETRY_AFTER_MAX` | `300` | never wait longer than this after a `429` |
 | `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours |
+| `--stale-hours` | `FREEROOMS_STALE_HOURS` | `4` | mark data stale after N hours (with `--refresh`, at least 1.5× the interval) |
 | `--host` / `--port` | `FREEROOMS_HOST` / `_PORT` | `127.0.0.1` / `8000` | |
 
 ## Running on a home server
@@ -65,10 +72,10 @@ cron / --refresh ──► fetch.py ──► ETH Rauminfo API (rooms list + per
    | 11 | seen on doctoral courses | busy |
    | 8 | building closed (nights, weekends; hours differ per building, e.g. ETF closes 20:00) | closed |
    | 7 | holiday closure | closed |
-   | 13, or `findetStatt: 0` | cancelled | dropped (= free) |
+   | 13, or `findetStatt: 0` | not held ("Findet dieses Semester nicht statt" in the course catalogue, verified via VVZ; ETH's own allocation page hides these too) | free; kept as *cancelled* and shown struck through in the room timeline |
    | anything else | | busy + warning in the log |
 
-4. At time *t*, a room is busy or closed if an interval contains *t*. Back-to-back intervals are merged, including across midnight (`23:59` → `00:00`). Otherwise the room is free until the next interval starts. Rooms with no entries at all are shown as *unknown*. Rooms without closure entries get an "opening hours unknown" note and are listed last.
+4. At time *t*, a room is busy or closed if an interval contains *t*. Back-to-back intervals are merged, including across midnight (`23:59` → `00:00`). Otherwise the room is free until the next interval starts. Rooms with no entries at all, or with any malformed entry (missing/invalid `date_from`/`date_to`, `date_to` before `date_from`, unexpected shape), are shown as *unknown* rather than free, and a warning is logged. Rooms without closure entries get an "opening hours unknown" note and are listed last.
 5. A building's opening hours for a day are the gap between its closure entries (from the first opening to the last closing), taken as the most common value among its rooms.
 6. Room details (`GET /v2/rooms/{building floor room}&lang=en`) are fetched on demand and cached in SQLite for 7 days. Only ids that are in the `rooms` table are accepted, so the endpoint can't be used as an open proxy.
 

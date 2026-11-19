@@ -25,7 +25,7 @@ def now_local() -> datetime:
 class Interval:
     start: datetime
     end: datetime
-    kind: str            # 'busy' | 'closed'
+    kind: str            # 'busy' | 'closed' | 'cancelled' (ignored for availability)
     title: str | None = None
 
 
@@ -44,7 +44,8 @@ def room_status(intervals: list[Interval], t: datetime, has_data: bool,
                 window_end: datetime | None = None) -> Status:
     if not has_data or (window_end is not None and t >= window_end):
         return Status("unknown")
-    ivs = sorted(intervals, key=lambda i: i.start)
+    # Cancelled entries are only shown in the timeline, they never block the room.
+    ivs = sorted((i for i in intervals if i.kind != "cancelled"), key=lambda i: i.start)
 
     current = [i for i in ivs if i.start <= t < i.end]
     if current:
@@ -130,12 +131,12 @@ def query(conn: sqlite3.Connection, t: datetime) -> list[dict]:
         window_end = datetime.fromisoformat(window[0].split("/")[1]) + timedelta(days=1)
 
     by_room: dict[str, list[Interval]] = {}
-    for row in conn.execute("SELECT room_id, start, end, kind, title FROM intervals WHERE end > ?",
+    for row in conn.execute("SELECT room_id, start, end, kind, title FROM intervals WHERE end > ? AND kind != 'cancelled'",
                             (t.isoformat(),)):
         by_room.setdefault(row["room_id"], []).append(
             Interval(_dt(row["start"]), _dt(row["end"]), row["kind"], row["title"]))
 
-    # All intervals of the day containing t, for the timeline in the UI.
+    # All intervals of the day containing t, for the timeline in the UI (including cancelled ones).
     d0 = t.replace(hour=0, minute=0)
     timeline: dict[str, list[list]] = {}
     for row in conn.execute(

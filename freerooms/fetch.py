@@ -18,6 +18,7 @@ DEFAULT_TYPECODES = ("3430", "3420", "3650")
 DEFAULT_SITES = ("Zürich Zentrum", "Zürich Hönggerberg")
 
 ROOMS_FILE = Path(__file__).with_name("rooms.txt")
+SOURCE = "eth_rooms"      # key in store.source_health
 
 
 def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
@@ -27,21 +28,53 @@ def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
 
 
 CLOSED_TYPES = {7, 8}     # 8: nightly/weekend building closure, 7: holiday closure
-CANCELLED_TYPES = {13}    # cancelled event -> room is actually free
+CANCELLED_TYPES = {13}    # not held this semester (VVZ: "Findet nicht statt") -> room is free
 # 2: regular booking (lecture, exercise, meeting, event)
 # 5: construction / repair / technical reservation ("Umbau", "Reparatur")
 # 11: seen on doctoral courses (D-MATH), otherwise like 2
 BUSY_TYPES = {2, 5, 11}
 
 
+def validate(alloc: object) -> str | None:
+    """Why a raw allocation is unusable, or None if it looks sane.
+
+    A room with any unusable entry is stored as unknown: silently dropping the
+    entry could hide a booking and make the room look free.
+    """
+    if not isinstance(alloc, dict):
+        return f"not an object: {type(alloc).__name__}"
+    times = []
+    for key in ("date_from", "date_to"):
+        v = alloc.get(key)
+        try:
+            dt = datetime.fromisoformat(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return f"invalid {key}: {v!r}"
+        if dt.tzinfo is not None:  # we store naive Europe/Zurich local time
+            return f"unexpected timezone in {key}: {v!r}"
+        times.append(dt)
+    if times[1] < times[0]:
+        return f"date_to before date_from: {alloc['date_from']} > {alloc['date_to']}"
+    serie = alloc.get("belegungsserie")
+    if serie is not None and not isinstance(serie, dict):
+        return f"belegungsserie is {type(serie).__name__}"
+    event = (serie or {}).get("veranstaltung")
+    if event is not None and not isinstance(event, dict):
+        return f"veranstaltung is {type(event).__name__}"
+    return None
+
+
 def normalize(alloc: dict) -> tuple[str, str, str, str | None, int] | None:
-    """Turn one raw allocation into (start, end, kind, title, raw_type), or None to drop it."""
+    """Turn one raw allocation into (start, end, kind, title, raw_type), or None to drop it.
+
+    Cancelled entries are kept as kind 'cancelled' for display only; they never block a room.
+    """
     serie = alloc.get("belegungsserie") or {}
     btype = serie.get("belegungstyp")
     event = serie.get("veranstaltung") or {}
     if btype in CANCELLED_TYPES or event.get("findetStatt") == 0:
-        return None
-    if btype in CLOSED_TYPES:
+        kind = "cancelled"
+    elif btype in CLOSED_TYPES:
         kind = "closed"
     else:
         if btype not in BUSY_TYPES:
@@ -69,7 +102,23 @@ def select_rooms(rooms: list[dict], typecodes=DEFAULT_TYPECODES, sites=DEFAULT_S
 
 def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7,
         buildings: tuple[str, ...] | None = None, sites=DEFAULT_SITES,
-        typecodes=DEFAULT_TYPECODES) -> dict:
+        typecodes=DEFAULT_TYPECODES, max_age: float | None = None) -> dict:
+    """Fetch everything. `max_age` (seconds): when the data should count as stale (default 4 h)."""
+    try:
+        stats = _run(conn, client, days, buildings, sites, typecodes)
+    except Exception as e:
+        store.record_attempt(conn, SOURCE, error=f"{type(e).__name__}: {e}", max_age=max_age)
+        raise
+    if stats["rooms"] and not stats["ok"]:
+        store.record_attempt(conn, SOURCE, error=f"all {stats['rooms']} allocation fetches failed", max_age=max_age)
+        raise RuntimeError("fetch failed for every room")
+    store.record_attempt(conn, SOURCE, counts=stats, max_age=max_age)
+    store.set_meta(conn, "last_fetch", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    conn.commit()
+    return stats
+
+
+def _run(conn, client, days, buildings, sites, typecodes) -> dict:
     client = client or ApiClient()
     all_rooms = client.rooms()
     allow = load_allowlist()
@@ -85,7 +134,7 @@ def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7
 
     today = datetime.now(TZ).date()
     start, end = today, today + timedelta(days=days)
-    stats = {"rooms": len(rooms), "ok": 0, "empty": 0, "failed": 0, "intervals": 0}
+    stats = {"rooms": len(rooms), "ok": 0, "empty": 0, "failed": 0, "malformed": 0, "intervals": 0}
 
     for i, r in enumerate(rooms, 1):
         rid = query_id(r)
@@ -95,17 +144,36 @@ def run(conn: sqlite3.Connection, client: ApiClient | None = None, days: int = 7
             log.error("[%d/%d] %s: fetch failed: %s", i, len(rooms), rid, e)
             stats["failed"] += 1
             continue
-        rows = [n for a in allocs if (n := normalize(a)) is not None]
-        if not allocs:
+        if isinstance(allocs, list):
+            problems = [validate(a) for a in allocs]
+        else:
+            allocs, problems = [allocs], [f"response is {type(allocs).__name__}, not a list"]
+        bad = [(a, why) for a, why in zip(allocs, problems) if why]
+        rows = [n for a, why in zip(allocs, problems) if not why and (n := normalize(a)) is not None]
+        n_raw = len(allocs)
+        if bad:
+            stats["malformed"] += 1
+            prev = conn.execute("SELECT n_entries FROM rooms WHERE id=?", (rid,)).fetchone()
+            if prev and prev[0]:
+                # Like a failed fetch: keep the last good data rather than a partial picture.
+                log.warning("[%d/%d] %s: %d malformed entries, keeping previous data; first: %s (%r)",
+                            i, len(rooms), rid, len(bad), bad[0][1], bad[0][0])
+                stats["ok"] += 1
+                continue
+            # No good data yet: n_entries=0 shows the room as unknown, never as free.
+            # The valid entries are still stored for the timeline.
+            log.warning("[%d/%d] %s: %d malformed entries, marking unknown; first: %s (%r)",
+                        i, len(rooms), rid, len(bad), bad[0][1], bad[0][0])
+            n_raw = 0
+        elif not allocs:
             # Every normal room has at least the nightly closure entries.
             log.warning("[%d/%d] %s: empty response (wrong id or unmanaged room?)", i, len(rooms), rid)
             stats["empty"] += 1
-        _save_room(conn, r, rid, rows, len(allocs), start, end)
+        _save_room(conn, r, rid, rows, n_raw, start, end)
         stats["ok"] += 1
         stats["intervals"] += len(rows)
         log.debug("[%d/%d] %s: %d raw, %d kept", i, len(rooms), rid, len(allocs), len(rows))
 
-    store.set_meta(conn, "last_fetch", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     store.set_meta(conn, "window", f"{start.isoformat()}/{end.isoformat()}")
     conn.commit()
     log.info("fetch done: %s", stats)

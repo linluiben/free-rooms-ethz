@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime
 
-from . import fetch, store, web
+from . import api, fetch, store, web
 from .api import ApiClient
 from .availability import now_local, query
 
@@ -28,6 +28,19 @@ def main() -> None:
                         help="comma-separated, e.g. HG,CAB (default: all)")
         sp.add_argument("--delay", type=float, default=float(os.environ.get("FREEROOMS_DELAY", 0.3)),
                         help="seconds between API requests")
+        sp.add_argument("--ratelimit-low", type=int, default=int(os.environ.get("FREEROOMS_RATELIMIT_LOW", api.LOW_REMAINING)),
+                        help="slow down when x-ratelimit-remaining is at or below this")
+        sp.add_argument("--ratelimit-pause", type=float,
+                        default=float(os.environ.get("FREEROOMS_RATELIMIT_PAUSE", api.LOW_PAUSE)),
+                        help="seconds between requests while the rate limit is low")
+        sp.add_argument("--retry-after-default", type=float,
+                        default=float(os.environ.get("FREEROOMS_RETRY_AFTER_DEFAULT", api.RETRY_AFTER_DEFAULT)),
+                        help="seconds to wait after a 429 without a usable Retry-After")
+        sp.add_argument("--retry-after-max", type=float,
+                        default=float(os.environ.get("FREEROOMS_RETRY_AFTER_MAX", api.RETRY_AFTER_MAX)),
+                        help="never wait longer than this after a 429")
+        sp.add_argument("--stale-hours", type=float, default=float(os.environ.get("FREEROOMS_STALE_HOURS", 4)),
+                        help="flag data as stale in the UI after N hours (serve --refresh raises it to 1.5x the interval)")
 
     fetch_args(sub.add_parser("fetch", help="fetch rooms + allocations into the DB"))
 
@@ -48,7 +61,10 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if a.cmd in ("fetch", "serve"):
-        kw = {"client": ApiClient(delay=a.delay), "days": a.days, "buildings": _csv(a.buildings)}
+        client = ApiClient(delay=a.delay, low_remaining=a.ratelimit_low, low_pause=a.ratelimit_pause,
+                           retry_after_default=a.retry_after_default, retry_after_max=a.retry_after_max)
+        kw = {"client": client, "days": a.days, "buildings": _csv(a.buildings),
+              "max_age": a.stale_hours * 3600}
     if a.cmd == "fetch":
         conn = store.connect(a.db)
         fetch.run(conn, **kw)

@@ -93,7 +93,7 @@ How ETH computes the numbers ([data source page](https://ethz.ch/students/en/cam
 
 | Project | What it does | Notes |
 | --- | --- | --- |
-| [bquozon/ETH-room-finder](https://github.com/bquozon/ETH-room-finder) → [rooms.polyuni.ch](https://rooms.polyuni.ch/) / [eth-rooms.bquozon.ch](https://eth-rooms.bquozon.ch/) | ETH + UZH free rooms (7 days), ETH + UZH live study-space occupancy, popular-times forecast, 3D MapLibre map, "near me" via browser geolocation (computed client-side), privacy-friendly stats | Static site + cron (bash/python/jq), VPS + Caddy. Uses **all** 3430/3420 rooms incl. department rooms (the false-free problem we fixed with `rooms.txt`). No ICBP per-floor feed. **No license** → we cannot reuse code. Very active, 3 stars. |
+| [bquozon/ETH-room-finder](https://github.com/bquozon/ETH-room-finder) → [rooms.polyuni.ch](https://rooms.polyuni.ch/) / [eth-rooms.bquozon.ch](https://eth-rooms.bquozon.ch/) | ETH + UZH free rooms (7 days), ETH + UZH live study-space occupancy, popular-times forecast, 3D MapLibre map, "near me" via browser geolocation (computed client-side), privacy-friendly stats | Static site + cron (bash/python/jq), VPS + Caddy. Uses only Rektorat rooms (orgunit 09188, room group 114), like us, plus a hand-picked `extra_rooms.txt` (CAB H 56). Treats type 13 / `findetStatt: 0` as booked. No ICBP per-floor feed. **No license** → we cannot reuse code. Very active, 3 stars. |
 | [damcha02/open-room-ethz](https://github.com/damcha02/open-room-ethz) | ETH free-room PWA, favourites, filters, offline | Cloudflare Worker + Durable Object, daily request budget, honours 429/Retry-After (so ETH's Rauminfo API has a rate-limit header!). 129-room seed list. No license. |
 | [nielstron/freiraumETHZ](https://github.com/nielstron/freiraumETHZ) (2021) | Closest free room, Telegram bot, geocoding | Old HTML scraping; idea source only. |
 | *roominfo_checker* / "Sick Room Finder" by Oliver Saravanja | ETH Rauminfo scraper (MIT) | Credited by ETH-room-finder; couldn't find the repo. |
@@ -103,7 +103,7 @@ How ETH computes the numbers ([data source page](https://ethz.ch/students/en/cam
 
 ### Lessons from the other projects
 
-- **Type 13 / `findetStatt: 0` really means "not held".** On 2026-11-19, HCI F 8 had two weekly series of type 13 from 14:00 to 18:00, all semester: 052-0585-26 *Unveiling Habitats* and 052-0845-26 *Spezialfragen Architekturgeschichte*. The course catalogue says "Findet dieses Semester nicht statt" for both. ETH's own allocation page drops these entries too (`roominformation.js`: `addAllocation` keeps entries only if `veranstaltung == null || findetStatt === 1`). So we are right to show the room as free. rooms.polyuni.ch and rooms.saravanja.ch show it as reserved, and open-room-ethz as "blocked". **Idea:** show cancelled entries greyed out in the room timeline ("cancelled: Unveiling Habitats"), so users understand why we disagree with other tools.
+- **Type 13 / `findetStatt: 0` really means "not held".** On 2026-11-19, HCI F 8 had two weekly series of type 13, all semester: 052-0585-26 *Unveiling Habitats* (14:00–18:00) and 052-0845-26 *Spezialfragen Architekturgeschichte* (14:00–16:00). The course catalogue says "Findet dieses Semester nicht statt" for both. ETH's own allocation page drops these entries too (`roominformation.js`: `addAllocation` keeps entries only if `veranstaltung == null || findetStatt === 1`). So we are right to show the room as free. rooms.polyuni.ch and rooms.saravanja.ch show it as reserved, and open-room-ethz as "blocked". **Idea:** show cancelled entries greyed out in the room timeline ("cancelled: Unveiling Habitats"), so users understand why we disagree with other tools.
 - **open-room-ethz:**
   - *Strict parsing*: one malformed entry fails the whole response, so a skipped booking can never make a room look free.
   - *Rate limiting*: honours `x-ratelimit-remaining` (slows down at ≤ 5) and `429` + `Retry-After` (60 s default cooldown).
@@ -138,14 +138,14 @@ Limits:
 ETH-room-finder already covers most of the feature list. Options:
 
 1. **Differentiate (recommended).** Our edge:
-   - *Correctness*: only rooms whose bookings are complete (Rektoratsräume + UZH central rooms), with explicit "unknown" states. Theirs shows department rooms as free.
+   - *Correctness*: only rooms whose bookings are complete (Rektoratsräume + UZH central rooms), with explicit "unknown" states, and cancelled (type 13) entries shown as free. (Correction 2026-11-19: they also use only Rektorat rooms, so the department-room point does not apply to them.)
    - *Zero-dependency, self-hostable*: one Python process, SQLite, Docker.
    - *A clean JSON API* other tools (bots, widgets) can build on.
    - Features they lack: ICBP per-floor occupancy, filters on room attributes (food allowed, windows, sockets, both universities), "free from X for Y hours" planning, notifications/bot.
-2. **Collaborate.** Open an issue there about the department-room problem and the ICBP feed. That needs them to add a license before any code flows either way.
+2. **Collaborate.** Open an issue there about type 13 and the ICBP feed. That needs them to add a license before any code flows either way.
 3. **Keep it as a personal/learning project** and not worry about overlap.
 
-Either way, it's worth telling them about the department-room issue, since it affects their users.
+Either way, it's worth telling them about type 13, since it affects their users (issue #5). Note that department rooms are not simply missing from Rauminfo: HG G 19.1 has bookings there, but they are incomplete, because departments also book through other channels.
 
 ## Roadmap
 
