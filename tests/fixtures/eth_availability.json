@@ -1,0 +1,124 @@
+{
+ "data": [
+  {
+   "type": "room_availability",
+   "id": "BSSK14",
+   "attributes": {
+    "roomGlobalIdentifier": "BSSK14",
+    "floor": "K",
+    "status": "unknown"
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "CHND8",
+   "attributes": {
+    "roomGlobalIdentifier": "CHND8",
+    "floor": "D",
+    "status": "unknown"
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "CHNF46",
+   "attributes": {
+    "roomGlobalIdentifier": "CHNF46",
+    "floor": "F",
+    "occupancy": 0,
+    "maxPeople": 60,
+    "occupancyPercentage": 0,
+    "timestamp": "2026-11-19T21:40:20.172014+01:00",
+    "elionaAssetId": 5835,
+    "status": "green",
+    "trend": "steady",
+    "activeFlag": true
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "HCIF30.0017",
+   "attributes": {
+    "roomGlobalIdentifier": "HCIF30.0017",
+    "floor": "F",
+    "status": "unknown"
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "HCIG5.1",
+   "attributes": {
+    "roomGlobalIdentifier": "HCIG5.1",
+    "floor": "G",
+    "timestamp": "2026-10-15T08:37:40.960194+02:00",
+    "elionaAssetId": 7371,
+    "status": "unknown",
+    "trend": "steady",
+    "activeFlag": true
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "HGH30.1",
+   "attributes": {
+    "roomGlobalIdentifier": "HGH30.1",
+    "floor": "H",
+    "occupancy": 32,
+    "maxPeople": 150,
+    "occupancyPercentage": 20,
+    "timestamp": "2026-11-19T21:40:20.266618+01:00",
+    "elionaAssetId": 4689,
+    "status": "green",
+    "trend": "steady",
+    "activeFlag": true
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "HILE19.1",
+   "attributes": {
+    "roomGlobalIdentifier": "HILE19.1",
+    "floor": "E",
+    "status": "unknown"
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "HPRD70.2",
+   "attributes": {
+    "roomGlobalIdentifier": "HPRD70.2",
+    "floor": "D",
+    "status": "red",
+    "occupancy": 301,
+    "maxPeople": 380,
+    "occupancyPercentage": 80,
+    "timestamp": "2026-11-19T12:05:11.482913+01:00",
+    "elionaAssetId": 9999,
+    "trend": "filling",
+    "activeFlag": true
+   }
+  },
+  {
+   "type": "room_availability",
+   "id": "MMB79",
+   "attributes": {
+    "roomGlobalIdentifier": "MMB79",
+    "floor": "B",
+    "occupancy": 7,
+    "maxPeople": 650,
+    "occupancyPercentage": 0,
+    "timestamp": "2026-11-19T21:40:20.459689+01:00",
+    "elionaAssetId": 6323,
+    "status": "green",
+    "trend": "steady",
+    "activeFlag": true
+   }
+  }
+ ],
+ "meta": {
+  "resultsTotal": 9,
+  "resultsOnPage": 9,
+  "pageSize": 10,
+  "page": 1,
+  "pagesTotal": 12
+ }
+}
