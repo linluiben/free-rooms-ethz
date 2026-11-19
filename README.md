@@ -22,6 +22,8 @@ python3 -m freerooms serve            # UI on http://127.0.0.1:8000
 
 `/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`.
 
+`/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` or `stale`. The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
+
 Options (flags or env vars):
 
 | Flag | Env | Default | |
@@ -31,6 +33,7 @@ Options (flags or env vars):
 | `--buildings` | `FREEROOMS_BUILDINGS` | all | e.g. `HG,CAB,ML` |
 | `--delay` | `FREEROOMS_DELAY` | `0.3` | seconds between API requests |
 | `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours |
+| `--stale-hours` | `FREEROOMS_STALE_HOURS` | `4` | mark data stale after N hours (with `--refresh`, at least 1.5× the interval) |
 | `--host` / `--port` | `FREEROOMS_HOST` / `_PORT` | `127.0.0.1` / `8000` | |
 
 ## Running on a home server

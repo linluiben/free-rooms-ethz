@@ -28,6 +28,8 @@ def main() -> None:
                         help="comma-separated, e.g. HG,CAB (default: all)")
         sp.add_argument("--delay", type=float, default=float(os.environ.get("FREEROOMS_DELAY", 0.3)),
                         help="seconds between API requests")
+        sp.add_argument("--stale-hours", type=float, default=float(os.environ.get("FREEROOMS_STALE_HOURS", 4)),
+                        help="flag data as stale in the UI after N hours (serve --refresh raises it to 1.5x the interval)")
 
     fetch_args(sub.add_parser("fetch", help="fetch rooms + allocations into the DB"))
 
@@ -48,7 +50,8 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if a.cmd in ("fetch", "serve"):
-        kw = {"client": ApiClient(delay=a.delay), "days": a.days, "buildings": _csv(a.buildings)}
+        kw = {"client": ApiClient(delay=a.delay), "days": a.days, "buildings": _csv(a.buildings),
+              "max_age": a.stale_hours * 3600}
     if a.cmd == "fetch":
         conn = store.connect(a.db)
         fetch.run(conn, **kw)

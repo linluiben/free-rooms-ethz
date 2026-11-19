@@ -4,6 +4,7 @@ GET /                         -> UI
 GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH
+GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
 """
 
@@ -25,6 +26,7 @@ from .availability import building_hours, now_local, query
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 DETAIL_TTL = timedelta(days=7)   # room attributes rarely change
+SOURCES = (fetch.SOURCE,)          # always listed in /api/health, even before the first fetch
 
 
 def simplify_detail(raw: dict) -> dict:
@@ -69,6 +71,8 @@ def make_handler(db_path: str, client: ApiClient | None = None):
                     self._send(200, html.encode(), "text/html; charset=utf-8")
                 elif url.path == "/healthz":
                     self._send(200, b"ok", "text/plain")
+                elif url.path == "/api/health":
+                    self._json(self._health())
                 elif url.path == "/api/rooms":
                     self._json(self._rooms(qs))
                 elif url.path == "/api/room":
@@ -91,9 +95,17 @@ def make_handler(db_path: str, client: ApiClient | None = None):
                     "at": t.isoformat(timespec="minutes"),
                     "now": now_local().isoformat(timespec="minutes"),
                     "last_fetch": store.get_meta(conn, "last_fetch"),
+                    "health": store.health(conn, SOURCES),
                     "rooms": query(conn, t),
                     "buildings": building_hours(conn, t),
                 }
+            finally:
+                conn.close()
+
+        def _health(self):
+            conn = store.connect(db_path)
+            try:
+                return store.health(conn, SOURCES)
             finally:
                 conn.close()
 
@@ -160,6 +172,8 @@ def refresher(db_path: str, every: float, fetch_kwargs: dict) -> None:
 
 def serve(db_path: str, host: str, port: int, refresh: float | None, fetch_kwargs: dict) -> None:
     if refresh:
+        # Data may be up to one interval old by design; only flag it once a refresh is clearly overdue.
+        fetch_kwargs = {**fetch_kwargs, "max_age": max(fetch_kwargs.get("max_age") or store.DEFAULT_MAX_AGE, 1.5 * refresh)}
         threading.Thread(target=refresher, args=(db_path, refresh, fetch_kwargs), daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), make_handler(db_path, fetch_kwargs.get("client")))
     log.info("serving on http://%s:%d", host, port)
