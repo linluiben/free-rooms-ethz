@@ -185,13 +185,32 @@ def _num(v) -> float | None:
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+# Live data for this place comes from the ICBP feed (per floor, and ETH's sensor for it is silent).
+LEFT_TO_ICBP = {"HCIG5.1"}
+# Rooms with a live people counter that are not in studyspaces.json. They are centrally booked
+# seminar rooms (also in rooms.txt), so the count says nothing about whether a class is on.
+SENSOR_ROOMS = {
+    "CHNF46": ("CHN", "F", "46", "ZZ"),
+    "HILB21": ("HIL", "B", "21", "ZH"),
+    "MLH37.1": ("ML", "H", "37.1", "ZZ"),
+}
+SENSOR_NOTE = "Seminar room with a people counter, not an official study space. Check its bookings in the Rooms view."
+
+
+def sensor_room_places() -> list[Place]:
+    return [Place(id=PREFIX + rid, uni="ETH", name=f"{b} {f} {r}", source="eth_availability",
+                  campus=CAMPUS[c], building=b, note=SENSOR_NOTE,
+                  url=f"{BASE}/en/utils/location.html?building={b}&floor={f}&room={r}")
+            for rid, (b, f, r, c) in SENSOR_ROOMS.items()]
+
+
 def parse_samples(raw: dict, now: datetime | None = None) -> list[Sample]:
     fetched = utc_iso((now or datetime.now(timezone.utc)).replace(second=0, microsecond=0))
     out = []
     for e in raw.get("data") or []:
         a = e.get("attributes") or {}
         rid = a.get("roomGlobalIdentifier") or e.get("id")
-        if not rid:
+        if not rid or rid in LEFT_TO_ICBP:
             continue
         count = _num(a.get("occupancy"))
         if count is None:  # no data (ETH's app shows the same: status unknown)
@@ -214,7 +233,7 @@ def fetch_places(http) -> tuple[list[Place], list[Sample]]:
 
 
 def fetch_samples(http) -> tuple[list[Place], list[Sample]]:
-    return [], parse_samples(http.get_json(AVAILABILITY_URL))
+    return sensor_room_places(), parse_samples(http.get_json(AVAILABILITY_URL))
 
 
 SOURCES = [

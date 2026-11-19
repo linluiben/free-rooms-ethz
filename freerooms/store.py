@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS places (
     lon           REAL,
     source        TEXT NOT NULL,    -- source key that owns this row (see live.py)
     url           TEXT,
+    note          TEXT,             -- caveat shown in the UI, e.g. 'mapping not verified'
     updated_at    TEXT              -- UTC ISO
 );
 -- Every live sample is kept (basis for "popular times"). pct is the share OCCUPIED, 0-100.
@@ -97,6 +98,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(rooms)")}
     if "workplaces" not in cols:  # added after the first release
         conn.execute("ALTER TABLE rooms ADD COLUMN workplaces INTEGER")
+        conn.commit()
+    if "note" not in {r[1] for r in conn.execute("PRAGMA table_info(places)")}:
+        conn.execute("ALTER TABLE places ADD COLUMN note TEXT")   # added after Phase 1's first draft
         conn.commit()
     # DBs from before source_health: take the room fetch time from meta.
     if conn.execute("INSERT OR IGNORE INTO source_health(source, last_attempt, last_success, max_age_s) "

@@ -24,10 +24,11 @@ from ..places import Place, Sample, status_for, utc_iso
 KEY = "icbp"
 URL = "https://iz-websrv01.ethz.ch:3000/api/visitors"
 SITE = "https://infoz01.ethz.ch/"
-LIBRARY_ID = f"{KEY}:HCI G 5.1"
+# The library is also an ETH study space (studyspaces.json, HCIG5.1). We use that place (name,
+# hours, features) and attach our library-wide samples and the floor sub-places to it; ETH's
+# own sensor for it has no data, so eth_availability leaves this place to us.
+LIBRARY_ID = "eth_studyspaces:HCIG5.1"
 NAME = "ICBP Infozentrum"
-# From infoz01.ethz.ch and ETH's studyspaces.json (same shape as the latter: a list of lines).
-HOURS = ["Mon - Fri: 08.00 - 20.00", "Sat - Sun: Closed", "External visitors: until 18.00"]
 
 
 def _num(v) -> float | None:
@@ -64,11 +65,10 @@ def _check(raw) -> dict:
 
 
 def parse_places(raw) -> list[Place]:
+    """The floors only; the library itself comes from eth_studyspaces."""
     raw = _check(raw)
-    lib = Place(id=LIBRARY_ID, uni="ETH", name=NAME, source=KEY, campus="Hönggerberg", building="HCI",
-                seats=int(raw["overall_max"]), hours=HOURS, url=SITE)
-    return [lib] + [Place(id=f"{KEY}:{f}", uni="ETH", name=f"{NAME} – floor {f}", source=KEY,
-                          parent_id=LIBRARY_ID, campus="Hönggerberg", building="HCI",
+    return [Place(id=f"{KEY}:{f}", uni="ETH", name=f"{NAME} – floor {f}", source=KEY,
+                          parent_id=LIBRARY_ID, campus="Zürich Hönggerberg", building="HCI",
                           seats=int(raw[f + "_max"]), url=SITE) for f in floors(raw)]
 
 
@@ -103,4 +103,5 @@ def fetch(http):
     return parse_places(raw), parse_samples(raw)
 
 
-SOURCES = [Source(key=KEY, every=300, max_age=900, fetch=fetch)]
+# order 1: after eth_studyspaces, which creates the library place our samples point to.
+SOURCES = [Source(key=KEY, every=300, max_age=900, fetch=fetch, order=1)]

@@ -84,10 +84,10 @@ class Fetch(unittest.TestCase):
 
     def test_all_widgets_sequential_with_delay(self):
         http, (places, samples) = self.fetch({wid: fixture("uzh_ub_open.html") for wid in uzh_ub.LIBRARIES})
-        self.assertEqual(len(http.urls), 12)
-        self.assertEqual(self.sleeps, [uzh_ub.DELAY] * 11)
-        self.assertEqual(len(places), 12)
-        self.assertEqual(len(samples), 12)
+        self.assertEqual(len(http.urls), len(uzh_ub.LIBRARIES))
+        self.assertEqual(self.sleeps, [uzh_ub.DELAY] * (len(uzh_ub.LIBRARIES) - 1))
+        self.assertEqual(len(places), len(uzh_ub.LIBRARIES))
+        self.assertEqual(len(samples), len(uzh_ub.LIBRARIES))
         s = samples[0]
         self.assertEqual((s.ts, s.pct, s.max, s.status, s.trend, s.closed),
                          ("2026-11-19T20:43:00+00:00", 30, 250, "green", None, False))
@@ -113,8 +113,8 @@ class Fetch(unittest.TestCase):
         with self.assertLogs("freerooms.sources.uzh_ub", "WARNING") as cm:
             _, (places, samples) = self.fetch(pages)
         self.assertEqual(len(cm.output), 2)
-        self.assertEqual(len(places), 12)
-        self.assertEqual(len(samples), 10)
+        self.assertEqual(len(places), len(uzh_ub.LIBRARIES))
+        self.assertEqual(len(samples), len(uzh_ub.LIBRARIES) - 2)
         self.assertNotIn("uzh_ub:17", {s.place_id for s in samples})
 
     def test_all_failing_raises_and_is_recorded(self):
@@ -130,7 +130,8 @@ class Fetch(unittest.TestCase):
         src = live.Source(key="uzh_ub", every=300, max_age=900,
                           fetch=lambda http: uzh_ub.fetch(http, now=NOW, sleep=lambda s: None))
         res = live.run_source(conn, src, FakeHttp({wid: fixture("uzh_ub_open.html") for wid in uzh_ub.LIBRARIES}))
-        self.assertEqual(res, {"places": 12, "samples": 12, "new_samples": 12})
+        n = len(uzh_ub.LIBRARIES)
+        self.assertEqual(res, {"places": n, "samples": n, "new_samples": n})
         rows = latest(conn, NOW)
         self.assertTrue(all(r["latest"]["pct"] == 30 for r in rows))
 

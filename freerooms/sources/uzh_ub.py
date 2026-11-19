@@ -51,7 +51,11 @@ LIBRARIES = {
     17: ("UB Psychologie", "Oerlikon", "BIN", 180, "psychologie", 47.414532, 8.549137),
     20: ("UB Veterinärmedizin", "Irchel", "TFA", 50, "veterinaermedizin", 47.400915, 8.55163),
     18: ("UB Volkswirtschaft", "Zentrum", "KOL", 74, "volkswirtschaft", 47.374544, 8.548613),
+    # Not on belegung-alle.html or the location page. Assumed from the seat count: the widget says
+    # "von 500" and the UB Recht page says "rund 500 Arbeitsplätze"; no other UB location is that big.
+    22: ("UB Rechtswissenschaft", "Zentrum", None, 500, "recht", None, None),
 }
+UNVERIFIED = {22: "Unconfirmed: we think this sensor is UB Rechtswissenschaft (500 seats), but UZH doesn't link it."}
 
 _VALUE = re.compile(r"""\bvalue\s*:\s*(['"])(.*?)\1""", re.S)
 _FREE = re.compile(r"^(?:ca\.?\s*)?([<>])?\s*(\d+(?:[.,]\d+)?)\s*%\s*frei(?:\s+von\s+(\d+))?", re.I)
@@ -88,7 +92,7 @@ def place_id(wid: int) -> str:
 def make_place(wid: int, seats: int | None = None) -> Place:
     name, campus, building, fallback, slug, lat, lon = LIBRARIES[wid]
     return Place(id=place_id(wid), uni="UZH", name=name, source=KEY, campus=campus, building=building,
-                 seats=seats or fallback, lat=lat, lon=lon, url=LOC_URL.format(slug))
+                 seats=seats or fallback, lat=lat, lon=lon, url=LOC_URL.format(slug), note=UNVERIFIED.get(wid))
 
 
 def make_sample(wid: int, parsed: dict, ts: str) -> Sample:

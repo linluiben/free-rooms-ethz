@@ -93,10 +93,12 @@ class Samples(unittest.TestCase):
         self.assertEqual(s.ts, "2026-11-19T11:05:11+00:00")
 
     def test_no_data_is_unknown_at_fetch_time(self):
-        for rid in ("CHND8", "HCIG5.1"):  # HCIG5.1 has a stale timestamp and a trend but no count
-            s = self.samples["eth_studyspaces:" + rid]
-            self.assertEqual((s.status, s.pct, s.count, s.trend), ("unknown", None, None, None))
-            self.assertEqual(s.ts, "2026-11-19T20:43:00+00:00")
+        s = self.samples["eth_studyspaces:CHND8"]
+        self.assertEqual((s.status, s.pct, s.count, s.trend), ("unknown", None, None, None))
+        self.assertEqual(s.ts, "2026-11-19T20:43:00+00:00")
+
+    def test_hci_g_5_1_is_left_to_icbp(self):
+        self.assertNotIn("eth_studyspaces:HCIG5.1", self.samples)
 
     def test_fallbacks(self):
         raw = {"data": [
@@ -119,12 +121,15 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([(s.key, s.every, s.max_age) for s in srcs],
                          [("eth_studyspaces", 3600, 10800), ("eth_availability", 300, 900)])
         conn = store.connect(":memory:")
-        with self.assertLogs("freerooms.places", "WARNING"):  # CHNF46, HCIG5.1: not in the trimmed studyspaces fixture
-            res = live.run_due(conn, FakeHttp(), srcs, force=True)
+        res = live.run_due(conn, FakeHttp(), srcs, force=True)
         self.assertEqual(res["eth_studyspaces"]["places"], 7)
-        self.assertEqual(res["eth_availability"], {"places": 0, "samples": 9, "new_samples": 7})
+        self.assertEqual(res["eth_availability"], {"places": 3, "samples": 8, "new_samples": 8})
         rows = {r["id"]: r for r in latest(conn)}
         self.assertEqual(rows["eth_studyspaces:HGH30.1"]["latest"]["count"], 32)
+        chn = rows["eth_studyspaces:CHNF46"]   # seminar room with a sensor: a place with a note
+        self.assertEqual((chn["name"], chn["campus"]), ("CHN F 46", "Zürich Zentrum"))
+        self.assertIn("Rooms view", chn["note"])
+        self.assertIsNotNone(chn["latest"]["pct"])
         self.assertEqual(rows["eth_studyspaces:MMB79"]["hours"]["meals"]["mon"][1], ["17:30", "19:30"])
 
 

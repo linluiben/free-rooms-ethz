@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 # Traffic light for sources that only give a number (ETH sends its own status). ETH does not
-# publish its thresholds, so these are ours: green below 60 % occupied, yellow below 85 %, else red.
-GREEN_BELOW, YELLOW_BELOW = 60.0, 85.0
+# publish its thresholds, so these are ours: green below 70 % occupied, yellow below 90 %, else red.
+GREEN_BELOW, YELLOW_BELOW = 70.0, 90.0
 _warned_unknown: set[str] = set()   # place ids already warned about (once per process)
 
 
@@ -40,6 +40,7 @@ class Place:
     lat: float | None = None
     lon: float | None = None
     url: str | None = None
+    note: str | None = None       # caveat for the UI, e.g. "mapping not verified"
 
 
 @dataclass
@@ -62,16 +63,16 @@ def upsert_places(conn: sqlite3.Connection, places: list[Place]) -> int:
     now = utc_iso()
     conn.executemany(
         """INSERT INTO places(id, parent_id, uni, campus, building, name, seats, hours_json, features_json,
-                              lat, lon, source, url, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                              lat, lon, source, url, note, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, uni=excluded.uni, campus=excluded.campus,
              building=excluded.building, name=excluded.name, seats=COALESCE(excluded.seats, places.seats), hours_json=excluded.hours_json,
              features_json=excluded.features_json, lat=COALESCE(excluded.lat, places.lat),
-             lon=COALESCE(excluded.lon, places.lon), source=excluded.source, url=excluded.url,
+             lon=COALESCE(excluded.lon, places.lon), source=excluded.source, url=excluded.url, note=excluded.note,
              updated_at=excluded.updated_at""",
         [(p.id, p.parent_id, p.uni, p.campus, p.building, p.name, p.seats,
           None if p.hours is None else json.dumps(p.hours, ensure_ascii=False),
-          json.dumps(p.features, ensure_ascii=False), p.lat, p.lon, p.source, p.url, now) for p in places])
+          json.dumps(p.features, ensure_ascii=False), p.lat, p.lon, p.source, p.url, p.note, now) for p in places])
     return len(places)
 
 
@@ -126,6 +127,6 @@ def latest(conn: sqlite3.Connection, now: datetime | None = None) -> list[dict]:
             "building": r["building"], "name": r["name"], "seats": r["seats"],
             "hours": json.loads(r["hours_json"]) if r["hours_json"] else None,
             "features": json.loads(r["features_json"]) if r["features_json"] else [],
-            "lat": r["lat"], "lon": r["lon"], "source": r["source"], "url": r["url"], "latest": sample,
+            "lat": r["lat"], "lon": r["lon"], "source": r["source"], "url": r["url"], "note": r["note"], "latest": sample,
         })
     return out
