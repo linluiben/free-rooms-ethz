@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..live import Source
-from ..places import Place, Sample, utc_iso
+from ..places import Place, Sample, status_for, utc_iso
 
 KEY = "icbp"
 URL = "https://iz-websrv01.ethz.ch:3000/api/visitors"
@@ -28,9 +28,6 @@ LIBRARY_ID = f"{KEY}:HCI G 5.1"
 NAME = "ICBP Infozentrum"
 # From infoz01.ethz.ch and ETH's studyspaces.json (same shape as the latter: a list of lines).
 HOURS = ["Mon - Fri: 08.00 - 20.00", "Sat - Sun: Closed", "External visitors: until 18.00"]
-# ETH does not publish its traffic-light thresholds (only that it shows 20% steps), so these
-# are our own assumption: below 60% occupied is green, below 85% yellow, otherwise red.
-GREEN_BELOW, YELLOW_BELOW = 60.0, 85.0
 
 
 def _num(v) -> float | None:
@@ -43,10 +40,6 @@ def floors(raw: dict) -> list[str]:
                   if k.endswith("_max") and k != "overall_max" and _num(v) is not None)
 
 
-def status_for(pct: float | None) -> str:
-    if pct is None:
-        return "unknown"
-    return "green" if pct < GREEN_BELOW else "yellow" if pct < YELLOW_BELOW else "red"
 
 
 def _trend(v) -> int | None:
@@ -85,7 +78,7 @@ def _sample(place_id: str, ts: str, count, mx, trend: int | None, closed: bool, 
     pct = None
     if count is not None and mx_n:
         pct = round(min(100.0, max(0.0, 100.0 * count / mx_n)), 1)
-    return Sample(place_id, ts, status=status_for(pct), pct=pct, count=count,
+    return Sample(place_id, ts, status=status_for(pct, closed), pct=pct, count=count,
                   max=None if mx_n is None else int(mx_n), trend=None if no_data else trend, closed=closed)
 
 

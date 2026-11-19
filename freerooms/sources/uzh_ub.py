@@ -11,7 +11,7 @@ Choices:
   (`bar.animate(0.97)`); "< 5% frei" (not seen yet) is treated the same way, as pct 97.
 - "geschlossen" -> closed=True, pct None, status None. The widget then has no seat count, so
   seats falls back to the number in the static table below.
-- status: green below 70 % occupied, yellow below 90 %, red from 90 % (i.e. "ca. 10% frei").
+- status: the shared traffic light, places.status_for.
 - ts: fetch time floored to the minute (UTC). trend: None (the widget has none).
 """
 
@@ -24,7 +24,7 @@ import time
 from datetime import datetime, timezone
 
 from .. import live
-from ..places import Place, Sample, utc_iso
+from ..places import Place, Sample, status_for, utc_iso
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +32,6 @@ KEY = "uzh_ub"
 WIDGET_URL = "https://hbzwwws04.ub.uzh.ch/occusense/occusense_progressbar_150.php?id={}"
 LOC_URL = "https://www.ub.uzh.ch/de/ub-besuchen/standorte/{}.html"
 DELAY = 0.5           # seconds between widget requests
-GREEN_BELOW, YELLOW_BELOW = 70, 90   # pct occupied thresholds
 EDGE_OCCUPIED = 3.0   # pct used for "> 95% frei" (the widget's bar shows 0.97 free)
 
 # Widget id -> (name, campus, building, fallback seats, location page slug, lat, lon).
@@ -80,10 +79,6 @@ def parse_widget(text: str) -> dict:
     raise ValueError("no occupancy label in widget page")
 
 
-def status_for(pct: float | None) -> str | None:
-    if pct is None:
-        return None
-    return "green" if pct < GREEN_BELOW else "yellow" if pct < YELLOW_BELOW else "red"
 
 
 def place_id(wid: int) -> str:
@@ -97,7 +92,7 @@ def make_place(wid: int, seats: int | None = None) -> Place:
 
 
 def make_sample(wid: int, parsed: dict, ts: str) -> Sample:
-    return Sample(place_id=place_id(wid), ts=ts, status=status_for(parsed["pct"]), pct=parsed["pct"],
+    return Sample(place_id=place_id(wid), ts=ts, status=status_for(parsed["pct"], parsed["closed"]), pct=parsed["pct"],
                   max=parsed["seats"], closed=parsed["closed"])
 
 

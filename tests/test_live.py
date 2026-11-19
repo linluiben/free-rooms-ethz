@@ -36,6 +36,19 @@ class Places(unittest.TestCase):
         self.assertEqual((p["latest"]["pct"], p["latest"]["age_s"]), (40, 60))
         self.assertEqual(p["features"][0]["key"], "quiet")
 
+    def test_repeated_no_data_samples_are_not_stored(self):
+        no = lambda ts, **kw: Sample("t:1", ts, status="unknown", **kw)
+        self.assertEqual(add_samples(self.conn, [no("2026-11-19T10:00:00+00:00")]), 1)
+        self.assertEqual(add_samples(self.conn, [no("2026-11-19T10:05:00+00:00")]), 0)
+        self.assertEqual(add_samples(self.conn, [no("2026-11-19T10:10:00+00:00", closed=True)]), 1)
+        self.assertEqual(add_samples(self.conn, [Sample("t:1", "2026-11-19T10:15:00+00:00", pct=5)]), 1)
+        self.assertEqual(add_samples(self.conn, [no("2026-11-19T10:20:00+00:00")]), 1)
+
+    def test_seats_kept_when_source_sends_none(self):
+        upsert_places(self.conn, [Place(id="t:1", uni="ETH", name="Lesesaal", source="t_meta")])
+        (p,) = latest(self.conn)
+        self.assertEqual(p["seats"], 100)
+
     def test_place_without_samples(self):
         (p,) = latest(self.conn)
         self.assertIsNone(p["latest"])

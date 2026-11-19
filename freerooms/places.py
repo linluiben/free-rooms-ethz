@@ -10,6 +10,20 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
+# Traffic light for sources that only give a number (ETH sends its own status). ETH does not
+# publish its thresholds, so these are ours: green below 60 % occupied, yellow below 85 %, else red.
+GREEN_BELOW, YELLOW_BELOW = 60.0, 85.0
+_warned_unknown: set[str] = set()   # place ids already warned about (once per process)
+
+
+def status_for(pct: float | None, closed: bool = False) -> str | None:
+    """Shared traffic light: None when closed (check `closed` first), 'unknown' without a number."""
+    if closed:
+        return None
+    if pct is None:
+        return "unknown"
+    return "green" if pct < GREEN_BELOW else "yellow" if pct < YELLOW_BELOW else "red"
+
 
 @dataclass
 class Place:
@@ -51,7 +65,7 @@ def upsert_places(conn: sqlite3.Connection, places: list[Place]) -> int:
                               lat, lon, source, url, updated_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, uni=excluded.uni, campus=excluded.campus,
-             building=excluded.building, name=excluded.name, seats=excluded.seats, hours_json=excluded.hours_json,
+             building=excluded.building, name=excluded.name, seats=COALESCE(excluded.seats, places.seats), hours_json=excluded.hours_json,
              features_json=excluded.features_json, lat=COALESCE(excluded.lat, places.lat),
              lon=COALESCE(excluded.lon, places.lon), source=excluded.source, url=excluded.url,
              updated_at=excluded.updated_at""",
@@ -62,17 +76,33 @@ def upsert_places(conn: sqlite3.Connection, places: list[Place]) -> int:
 
 
 def add_samples(conn: sqlite3.Connection, samples: list[Sample]) -> int:
-    """Store samples; returns how many were new. A repeated (place, ts) is ignored, and so is a
-    sample for a place we don't know yet (its metadata source hasn't run), with a warning."""
+    """Store samples; returns how many were new.
+
+    Skipped: a repeated (place, ts); a sample for a place we don't know (its metadata source
+    hasn't run, or the feed lists rooms that aren't study places; warned once per place); and a
+    sample without a number when the place's previous sample had none either, with the same
+    status and closed flag (otherwise every silent sensor would add a row every 5 minutes).
+    """
     known = {r[0] for r in conn.execute("SELECT id FROM places")}
-    unknown = sorted({s.place_id for s in samples} - known)
-    if unknown:
-        log.warning("samples for %d unknown places skipped: %s", len(unknown), ", ".join(unknown[:5]))
+    new_unknown = sorted({s.place_id for s in samples} - known - _warned_unknown)
+    if new_unknown:
+        _warned_unknown.update(new_unknown)
+        log.warning("samples for %d places not in the places table skipped (not repeated): %s",
+                    len(new_unknown), ", ".join(new_unknown[:5]) + (" ..." if len(new_unknown) > 5 else ""))
+    last = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
+        """SELECT o.place_id, o.pct, o.status, o.closed FROM occupancy o
+           WHERE o.ts = (SELECT MAX(ts) FROM occupancy WHERE place_id = o.place_id)""")}
+    rows = []
+    for s in samples:
+        if s.place_id not in known:
+            continue
+        if s.pct is None and s.place_id in last and last[s.place_id] == (None, s.status, int(s.closed)):
+            continue
+        rows.append((s.place_id, s.ts, s.status, s.pct, s.count, s.max, s.trend, int(s.closed)))
     before = conn.total_changes
     conn.executemany(
         "INSERT OR IGNORE INTO occupancy(place_id, ts, status, pct, count, max, trend, closed) VALUES (?,?,?,?,?,?,?,?)",
-        [(s.place_id, s.ts, s.status, s.pct, s.count, s.max, s.trend, int(s.closed))
-         for s in samples if s.place_id in known])
+        rows)
     return conn.total_changes - before
 
 

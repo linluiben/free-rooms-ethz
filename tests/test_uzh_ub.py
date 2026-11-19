@@ -68,9 +68,9 @@ class Parse(unittest.TestCase):
             with self.subTest(text=text[:40]), self.assertRaises(ValueError):
                 uzh_ub.parse_widget(text)
 
-    def test_status(self):
-        self.assertEqual([uzh_ub.status_for(p) for p in (None, 0, 65, 70, 85, 90, 100)],
-                         [None, "green", "green", "yellow", "yellow", "red", "red"])
+    def test_status_uses_shared_thresholds(self):
+        self.assertEqual(uzh_ub.make_sample(12, uzh_ub.parse_widget("value: 'ca. 30% frei von 250'"), "t").status,
+                         "yellow")   # 70 % occupied
 
 
 class Fetch(unittest.TestCase):

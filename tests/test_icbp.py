@@ -46,7 +46,7 @@ class Samples(unittest.TestCase):
         ss = by_id(icbp.parse_samples(load("icbp_closed.json")))
         lib = ss["icbp:HCI G 5.1"]
         self.assertEqual(lib.ts, "2026-11-19T20:39:29+00:00")
-        self.assertEqual((lib.count, lib.max, lib.pct, lib.trend, lib.closed, lib.status), (0, 170, 0, 0, True, "green"))
+        self.assertEqual((lib.count, lib.max, lib.pct, lib.trend, lib.closed, lib.status), (0, 170, 0, 0, True, None))
         self.assertTrue(all(s.closed and s.ts == lib.ts for s in ss.values()))
 
     def test_open(self):
@@ -77,8 +77,10 @@ class Samples(unittest.TestCase):
         self.assertEqual((lib.count, lib.trend), (17.5, -1))
 
     def test_thresholds(self):
-        self.assertEqual([icbp.status_for(p) for p in (None, 0, 59.9, 60, 84.9, 85, 100)],
+        from freerooms.places import status_for
+        self.assertEqual([status_for(p) for p in (None, 0, 59.9, 60, 84.9, 85, 100)],
                          ["unknown", "green", "green", "yellow", "yellow", "red", "red"])
+        self.assertIsNone(status_for(10, closed=True))
 
 
 class Fake:
