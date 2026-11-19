@@ -71,6 +71,12 @@ class RateLimit(unittest.TestCase):
         f.client(delay=0).date_range()
         self.assertEqual(f.sleeps, [api.RETRY_AFTER_DEFAULT])
 
+    def test_knobs_are_configurable(self):
+        f = Fake(FakeResp(x_ratelimit_remaining=8), FakeResp(), http_error(429), FakeResp())
+        c = f.client(delay=0.3, low_remaining=10, low_pause=2.5, retry_after_default=9)
+        c.date_range(); c.date_range(); c.date_range()
+        self.assertEqual([round(s, 3) for s in f.sleeps], [2.5, 0.3, 9.0])
+
     def test_404_not_retried(self):
         f = Fake(http_error(404), FakeResp())
         with self.assertRaises(urllib.error.HTTPError):
@@ -106,6 +112,8 @@ class RetryAfter(unittest.TestCase):
         self.assertEqual(api.retry_after("-5"), 0.0)
         self.assertEqual(api.retry_after("soon"), api.RETRY_AFTER_DEFAULT)
         self.assertEqual(api.retry_after(None), api.RETRY_AFTER_DEFAULT)
+        self.assertEqual(api.retry_after(None, default=5), 5)
+        self.assertEqual(api.retry_after("86400", cap=10), 10)
 
 
 if __name__ == "__main__":

@@ -77,6 +77,15 @@ class FetchMarksUnknown(unittest.TestCase):
         # Valid entries are still kept for the timeline.
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM intervals").fetchone()[0], 2)
 
+    def test_malformed_refetch_keeps_previous_good_data(self):
+        conn = store.connect(":memory:")
+        fetch.run(conn, FakeClient([good()]), buildings=("HG",))
+        with self.assertLogs("freerooms.fetch", "WARNING") as logs:
+            stats = fetch.run(conn, FakeClient([good(date_to=None)]), buildings=("HG",))
+        (room,) = query(conn, self.t)
+        self.assertEqual((room["state"], stats["malformed"]), ("busy", 1))
+        self.assertTrue(any("keeping previous data" in m for m in logs.output))
+
     def test_reversed_interval_is_unknown(self):
         with self.assertLogs("freerooms.fetch", "WARNING"):
             _, _, room = self.fetch([good(date_to="2026-11-11T09:00:00")])

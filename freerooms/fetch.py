@@ -152,11 +152,18 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
         rows = [n for a, why in zip(allocs, problems) if not why and (n := normalize(a)) is not None]
         n_raw = len(allocs)
         if bad:
-            # Don't trust a partial picture: n_entries=0 shows the room as unknown.
+            stats["malformed"] += 1
+            prev = conn.execute("SELECT n_entries FROM rooms WHERE id=?", (rid,)).fetchone()
+            if prev and prev[0]:
+                # Like a failed fetch: keep the last good data rather than a partial picture.
+                log.warning("[%d/%d] %s: %d malformed entries, keeping previous data; first: %s (%r)",
+                            i, len(rooms), rid, len(bad), bad[0][1], bad[0][0])
+                stats["ok"] += 1
+                continue
+            # No good data yet: n_entries=0 shows the room as unknown, never as free.
             # The valid entries are still stored for the timeline.
             log.warning("[%d/%d] %s: %d malformed entries, marking unknown; first: %s (%r)",
                         i, len(rooms), rid, len(bad), bad[0][1], bad[0][0])
-            stats["malformed"] += 1
             n_raw = 0
         elif not allocs:
             # Every normal room has at least the nightly closure entries.

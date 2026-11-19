@@ -72,7 +72,8 @@ def make_handler(db_path: str, client: ApiClient | None = None):
                 elif url.path == "/healthz":
                     self._send(200, b"ok", "text/plain")
                 elif url.path == "/api/health":
-                    self._json(self._health())
+                    h = self._health()  # 503 when stale, so plain uptime monitors notice
+                    self._json(h, 503 if h["status"] == "stale" else 200)
                 elif url.path == "/api/rooms":
                     self._json(self._rooms(qs))
                 elif url.path == "/api/room":

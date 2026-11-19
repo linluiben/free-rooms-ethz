@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
@@ -133,8 +134,11 @@ class Endpoint(unittest.TestCase):
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(tmp_db(), FakeClient()))
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/health") as r:
-                h = json.load(r)
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/health")
+            self.assertEqual(cm.exception.code, 503)
+            with cm.exception:
+                h = json.load(cm.exception)
             self.assertEqual(h["status"], "stale")
             self.assertIsNone(h["sources"]["eth_rooms"]["last_success"])
         finally:

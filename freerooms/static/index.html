@@ -258,7 +258,6 @@ function timelineBar(timeline, atISO, ticks) {
   const span = (DAY_END - DAY_START) * 60, x = m => Math.max(0, Math.min(100, (m - DAY_START * 60) / span * 100));
   let html = "";
   for (const [s, e, , kind] of timeline) {
-    if (kind === "cancelled" && !ticks) continue;  // cancelled entries only in the room panel, not on cards
     const a = x(toMin(s)), b = x(e === "23:59" ? 1440 : toMin(e));
     const cls = kind === "closed" ? "off" : kind === "cancelled" ? "cx" : "";
     if (b > a) html += `<i${cls ? ` class="${cls}"` : ""} style="left:${a}%;width:${b - a}%"></i>`;
