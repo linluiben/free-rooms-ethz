@@ -1,8 +1,8 @@
 # free-rooms-ethz
 
-Find an empty room to study in at ETH Zürich, right now or later today.
+Find an empty room to study in at ETH Zürich and the University of Zurich (UZH), right now or later today.
 
-The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.html) pages load their data from a public JSON endpoint (`https://ethz.ch/bin/ethz/roominfo?path=…`). This tool fetches the schedules of the centrally managed lecture halls, seminar rooms and computer rooms on the Zentrum and Hönggerberg campuses into SQLite (184 rooms, one request each). A small web UI then shows which rooms have nothing scheduled and for how long.
+The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.html) pages load their data from a public JSON endpoint (`https://ethz.ch/bin/ethz/roominfo?path=…`). This tool fetches the schedules of the centrally managed lecture halls, seminar rooms and computer rooms on the Zentrum and Hönggerberg campuses into SQLite (184 rooms, one request each). UZH's teaching rooms (150 on Zentrum, Irchel and Oerlikon) come from UZH's public room calendar, see [UZH rooms](#uzh-rooms). A small web UI then shows which rooms have nothing scheduled and for how long.
 
 - **Rooms view:** free rooms sorted by how long they stay free, with a day timeline. Filter by university (ETH / UZH) and campus (Zentrum, Hönggerberg, Irchel, Oerlikon, …): ETH Zentrum and UZH Zentrum are next door, so they share one “Zentrum” chip, and the university chips narrow it down. Room names are shown the way each university writes them (`HG E 5`, `KOL-F-101`). Tap a room for details: today's bookings, and for ETH rooms seats, windows, sockets, whether food is allowed, a campus map and links to ETH's room details, schedule and location pages; for UZH rooms links to the UZH map with the building's floor plans (`plaene.uzh.ch/?buildingCode=KOL`), the public 3V-Rooms calendar and the building's Uniability page.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours. Same university and campus filter as the Rooms view (default: Zentrum; the choice is remembered).
@@ -16,7 +16,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 ## Quick start
 
 ```sh
-python3 -m freerooms fetch            # ~1 min, writes data/freerooms.sqlite
+python3 -m freerooms fetch            # ETH ~1 min + UZH ~40 s, writes data/freerooms.sqlite
 python3 -m freerooms now --min 60     # CLI: rooms free for at least 1h
 python3 -m freerooms serve            # UI on http://127.0.0.1:8000
 python3 -m freerooms serve --live     # ... plus live study-space occupancy every 5 min
@@ -24,22 +24,23 @@ python3 -m freerooms serve --live     # ... plus live study-space occupancy ever
 
 `/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` or `#room=KOL-F-101` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms with `uni` and `campus`, plus opening hours per building) and `/api/roomdetail?id=…` (ETH rooms only; 404 for UZH rooms, ETH has no details for them). `/api/places` lists the study places with their latest occupancy sample. Tapping a study place opens its details (`/?view=spaces#place=eth_studyspaces:HGH30.1`): today's occupancy curve, floors, the week's opening hours, notices, all features and links; `/api/place?id=…&date=YYYY-MM-DD` returns that place and its floors with the day's samples (Zurich date, default today).
 
-`/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
+`/api/health` reports data freshness per source (`eth_rooms`, `uzh_rooms` when UZH is enabled, and the live sources with `--live`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
 
 Options (flags or env vars):
 
 | Flag | Env | Default | |
 | --- | --- | --- | --- |
 | `--db` | `FREEROOMS_DB` | `data/freerooms.sqlite` | |
+| `--unis` | `FREEROOMS_UNIS` | `ETH,UZH` | whose rooms to fetch (and list in `/api/health`) |
 | `--days` | `FREEROOMS_DAYS` | `7` | how far ahead to fetch |
-| `--buildings` | `FREEROOMS_BUILDINGS` | all | e.g. `HG,CAB,ML` |
-| `--delay` | `FREEROOMS_DELAY` | `0.3` | seconds between API requests |
+| `--buildings` | `FREEROOMS_BUILDINGS` | all | ETH only, e.g. `HG,CAB,ML` |
+| `--delay` | `FREEROOMS_DELAY` | `0.3` | seconds between ETH API requests (UZH: fixed 1 s) |
 | `--ratelimit-low` | `FREEROOMS_RATELIMIT_LOW` | `5` | slow down when `x-ratelimit-remaining` is at or below this |
 | `--ratelimit-pause` | `FREEROOMS_RATELIMIT_PAUSE` | `1` | seconds between requests while the limit is low |
 | `--retry-after-default` | `FREEROOMS_RETRY_AFTER_DEFAULT` | `60` | wait after a `429` without a usable `Retry-After` |
 | `--retry-after-max` | `FREEROOMS_RETRY_AFTER_MAX` | `300` | never wait longer than this after a `429` |
 | `--live` (serve) | `FREEROOMS_LIVE` | off | also run the live occupancy sources in the background |
-| `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours |
+| `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours (UZH: at least 6 h) |
 | `--stale-hours` | `FREEROOMS_STALE_HOURS` | `4` | mark data stale after N hours (with `--refresh`, at least 1.5× the interval) |
 | `--host` / `--port` | `FREEROOMS_HOST` / `_PORT` | `127.0.0.1` / `8000` | |
 
@@ -53,7 +54,7 @@ mkdir -p data && docker compose up -d --build   # serves :8000, refetches every 
 
 The container runs as uid 1000, so `./data` must be writable by that user. Put it behind your reverse proxy (Caddy/Traefik/nginx) if it should be reachable from outside.
 
-Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2 --live`. Alternatively, run `serve` without `--refresh`/`--live` and use cron: `python3 -m freerooms fetch` for the rooms (e.g. `0 6-21/2 * * *`) and `python3 -m freerooms live --once` for live occupancy (`*/5 * * * *`; each source still only runs when it is due, e.g. the ETH study-space list hourly).
+Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2 --live`. Alternatively, run `serve` without `--refresh`/`--live` and use cron: `python3 -m freerooms fetch --unis ETH` for the ETH rooms (e.g. `0 6-21/2 * * *`), `python3 -m freerooms fetch --unis UZH` for UZH a few times a day (e.g. `30 5,11,17 * * *`) and `python3 -m freerooms live --once` for live occupancy (`*/5 * * * *`; each source still only runs when it is due, e.g. the ETH study-space list hourly).
 
 ## How it works
 
@@ -92,6 +93,27 @@ The schedule page's "back to room details" link goes to whichever room's details
 
 All times are naive Europe/Zurich local time, as the API returns them.
 
+### UZH rooms
+
+`uzh.py` reads UZH's public room calendar ([3V-Rooms](https://uzh.book.3vrooms.app/default/Anonymous/Calendar/PortalFind), linked from UZH's student study rooms page). It is **undocumented** and marked `noindex`, so we keep it gentle: one run is 10 requests (about 40 s, 1 s apart), and `serve --refresh` runs it at most every 6 hours.
+
+1. **Anonymous session:** the portal page redirects to an OpenID Connect login with `acr_values=anonymous`. The identity provider answers with a form that submits itself (`code`, `state`, `iss`); posting it back gives the session cookies. No credentials are involved. When the session expires (HTTP 401, or the login page instead of JSON), the client logs in once more.
+2. **Rooms and campus:** UZH's saved calendar views "Zentrum", "Irchel" and "Oerlikon" list the centrally booked rooms per campus. The first day is fetched per view, which gives the room list and each room's campus; the other days in one request for all rooms. Titles such as `KOL-F-101 (209 Plätze) **` give the id (`KOL-F-101`, UZH's spelling), building, floor, room and seats. Bookable things that aren't rooms to study in (Apérofläche, Lager, Foyer, Lichthof, "EV" event rooms, labs, combinations like `AND-3-02/06` whose parts are listed, …) are left out; [`freerooms/uzh_rooms.txt`](freerooms/uzh_rooms.txt) lists the rooms we keep and why others are missing. A fetch warns about new or vanished rooms.
+3. **Blocks** (`RessourceTyp`, undocumented, inferred):
+
+   | type | meaning | treated as |
+   | --- | --- | --- |
+   | 1 | booking (only says "belegt") | busy |
+   | O | outside opening hours (nights, weekends) | closed |
+   | S | blocked (*Sperrzeit*): "Buchbar ab 18:00 Uhr.", "Informationen über die Verfügbarkeit auf Anfrage." | busy, with that text |
+   | F | closure: holidays ("Karfreitag UZH geschlossen", "Weihnachtsferien") and early closing ("Hauptgebäude ab 13:30 geschlossen") | closed, with that text |
+   | anything else | | busy + warning in the log |
+
+   Validation is as strict as for ETH: a room with a malformed block is *unknown*, never free, and a room without any block in the whole window is unknown too (every room normally has nightly `O` closures; the three KUM rooms have none, so their opening hours show as unknown). If a day fails to load, the data stops before that day instead of having a hole.
+4. **Times:** the API takes the query window in UTC, but its answers are Zurich **wall-clock** time with a misleading `Z` (bookings at `10:15Z` say "10:15 - 12:00" in their comment and stay at `10:15Z` across the switch to summer time). We store them as they are. Multi-day blocks are cut at midnight.
+
+Caveats: undocumented and may change any time; the session is anonymous but still a session; rooms whose `F`/`S` blocks are wrong would show wrong states. Bookings have not yet been checked against the [UZH course catalogue](https://courses.uzh.ch).
+
 ### Live occupancy (study spaces and libraries)
 
 Separate from the room schedules, `live.py` runs the sources in [`freerooms/sources/`](freerooms/sources/), each on its own interval (live numbers every 5 min, metadata hourly). Every module there that defines `SOURCES` is picked up automatically. A failing source is logged and shown in `/api/health`; it never blocks the others. Places go into the `places` table and **every sample is kept** in `occupancy` (basis for "popular times" later; about 100 places × 288 samples a day stays small; a sensor that keeps reporting "no data" is stored once, not every 5 minutes). `occupancy.pct` is always the share *occupied*, even for sources that report "% free". `/api/places` returns every place with its latest sample. Sources that only report a number get a shared traffic light (`places.status_for`): green below 70 % occupied, yellow below 90 %, red above. The UI shows exact percentages for sources that count people (ETH, ICBP) and "~" with 5 % steps for UZH, which only reports rounded values.
@@ -110,4 +132,4 @@ python3 -m unittest discover -s tests -t .
 
 ## License
 
-[MIT](LICENSE). The room data belongs to ETH Zürich.
+[MIT](LICENSE). The room data belongs to ETH Zürich and the University of Zurich.

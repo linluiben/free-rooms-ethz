@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, live, places, store
+from . import fetch, live, places, store, uzh
 from .api import ApiClient
 from .availability import TZ, building_hours, now_local, query
 
@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 DETAIL_TTL = timedelta(days=7)   # room attributes rarely change
 SOURCES = (fetch.SOURCE,)          # always listed in /api/health, even before the first fetch
+
+
+def room_sources(unis: tuple[str, ...]) -> tuple[str, ...]:
+    """Health keys of the enabled universities' room fetches, e.g. ('eth_rooms', 'uzh_rooms')."""
+    return tuple(fetch.SOURCES[u] for u in unis)
 
 
 def simplify_detail(raw: dict) -> dict:
@@ -43,9 +48,10 @@ def simplify_detail(raw: dict) -> dict:
     return {"description": raw.get("description"), "info": raw.get("infoText"), "tabs": tabs}
 
 
-def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tuple[str, ...] = ()):
+def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tuple[str, ...] = (),
+                 rooms_sources: tuple[str, ...] = SOURCES):
     client = client or ApiClient()
-    sources = (*SOURCES, *live_sources)  # listed in health even before their first fetch
+    sources = (*rooms_sources, *live_sources)  # listed in health even before their first fetch
     detail_lock = threading.Lock()   # one upstream request at a time
     class Handler(BaseHTTPRequestHandler):
         server_version = "free-rooms-ethz"
@@ -208,35 +214,58 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
     return Handler
 
 
-def refresher(db_path: str, every: float, fetch_kwargs: dict) -> None:
-    """Background loop: refetch every `every` seconds (first run immediately if DB is empty/stale)."""
+def refresh_intervals(every: float, unis: tuple[str, ...]) -> dict[str, float]:
+    """Seconds between background fetches per university: UZH at most every uzh.REFRESH_MIN."""
+    return {u: max(every, uzh.REFRESH_MIN) if u == "UZH" else every for u in unis}
+
+
+def _last_success_age(conn, uni: str) -> float:
+    row = conn.execute("SELECT last_success FROM source_health WHERE source=?", (fetch.SOURCES[uni],)).fetchone()
+    return time.time() - datetime.fromisoformat(row[0]).timestamp() if row and row[0] else float("inf")
+
+
+def refresher(db_path: str, every: float, fetch_kwargs: dict, unis: tuple[str, ...] = ("ETH",),
+              uzh_kwargs: dict | None = None) -> None:
+    """Background loop: refetch each university when its data is older than its interval (so the
+    first run is immediate if the DB is empty or stale). A failed fetch is retried in ~10 min."""
+    intervals = refresh_intervals(every, unis)
+    retry_at: dict[str, float] = {}
     while True:
+        waits = []
         conn = store.connect(db_path)
         try:
-            last = store.get_meta(conn, "last_fetch")
-            age = (time.time() - datetime.fromisoformat(last).timestamp()) if last else float("inf")
-            if age >= every:
-                fetch.run(conn, **fetch_kwargs)
-                age = 0
-        except Exception:
-            log.exception("background fetch failed")
-            age = every - 600  # retry in ~10 min
+            for uni in unis:
+                age = _last_success_age(conn, uni)
+                if age >= intervals[uni] and time.time() >= retry_at.get(uni, 0):
+                    try:
+                        fetch.run_uni(conn, uni, eth=fetch_kwargs, uzh=uzh_kwargs)
+                        age = 0
+                    except Exception:
+                        log.exception("background %s fetch failed", uni)
+                        retry_at[uni] = time.time() + 600
+                        waits.append(600)
+                        continue
+                waits.append(intervals[uni] - age)
         finally:
             conn.close()
-        time.sleep(max(60, every - age))
+        time.sleep(max(60, min(waits, default=every)))
 
 
 def serve(db_path: str, host: str, port: int, refresh: float | None, fetch_kwargs: dict,
-          live_on: bool = False) -> None:
+          live_on: bool = False, unis: tuple[str, ...] = ("ETH",), uzh_kwargs: dict | None = None) -> None:
     live_keys: tuple[str, ...] = ()
     if live_on:
         srcs = live.discover()
         live_keys = tuple(s.key for s in srcs)
         threading.Thread(target=live.loop, args=(db_path, None, srcs), daemon=True).start()
+    uzh_kwargs = uzh_kwargs or {}
     if refresh:
         # Data may be up to one interval old by design; only flag it once a refresh is clearly overdue.
-        fetch_kwargs = {**fetch_kwargs, "max_age": max(fetch_kwargs.get("max_age") or store.DEFAULT_MAX_AGE, 1.5 * refresh)}
-        threading.Thread(target=refresher, args=(db_path, refresh, fetch_kwargs), daemon=True).start()
-    httpd = ThreadingHTTPServer((host, port), make_handler(db_path, fetch_kwargs.get("client"), live_keys))
+        iv = refresh_intervals(refresh, ("ETH", "UZH"))
+        fetch_kwargs = {**fetch_kwargs, "max_age": max(fetch_kwargs.get("max_age") or store.DEFAULT_MAX_AGE, 1.5 * iv["ETH"])}
+        uzh_kwargs = {**uzh_kwargs, "max_age": max(uzh_kwargs.get("max_age") or store.DEFAULT_MAX_AGE, 1.5 * iv["UZH"])}
+        threading.Thread(target=refresher, args=(db_path, refresh, fetch_kwargs, unis, uzh_kwargs), daemon=True).start()
+    httpd = ThreadingHTTPServer((host, port), make_handler(db_path, fetch_kwargs.get("client"), live_keys,
+                                                           room_sources(unis)))
     log.info("serving on http://%s:%d", host, port)
     httpd.serve_forever()
