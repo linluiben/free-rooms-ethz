@@ -163,3 +163,19 @@ class Spaces(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Font(unittest.TestCase):
+    def test_font_is_served_and_cached(self):
+        import tempfile, os
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        store.connect(db).close()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db, FakeClient()))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/overpass.woff2") as r:
+                self.assertEqual(r.headers["Content-Type"], "font/woff2")
+                self.assertIn("max-age", r.headers["Cache-Control"])
+                self.assertEqual(r.read(4), b"wOF2")
+        finally:
+            httpd.shutdown()
