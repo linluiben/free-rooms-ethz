@@ -201,3 +201,38 @@ def _save_room(conn, r: dict, rid: str, rows, n_raw: int, start: date, end: date
         [(rid, *row) for row in rows],
     )
     conn.commit()
+
+
+UNIS = ("ETH", "UZH")
+SOURCES = {"ETH": SOURCE, "UZH": "uzh_rooms"}   # source_health key per university (uzh.SOURCE)
+
+
+def parse_unis(value: str | None) -> tuple[str, ...]:
+    """'ETH,UZH' -> ('ETH', 'UZH'); None/empty -> both. Unknown names are an error."""
+    unis = tuple(dict.fromkeys(u.strip().upper() for u in (value or ",".join(UNIS)).split(",") if u.strip()))
+    bad = [u for u in unis if u not in UNIS]
+    if bad or not unis:
+        raise ValueError(f"unknown universities {bad}, choose from {', '.join(UNIS)}")
+    return unis
+
+
+def run_uni(conn: sqlite3.Connection, uni: str, eth: dict | None = None, uzh: dict | None = None) -> dict:
+    """Fetch one university's rooms; `eth`/`uzh` are the keyword arguments of fetch.run / uzh.run."""
+    if uni == "ETH":
+        return run(conn, **(eth or {}))
+    from . import uzh as uzh_mod   # uzh imports nothing from here, but keep fetch light to import
+    return uzh_mod.run(conn, **(uzh or {}))
+
+
+def run_all(conn: sqlite3.Connection, unis: tuple[str, ...] = UNIS, eth: dict | None = None,
+            uzh: dict | None = None) -> dict[str, dict | None]:
+    """Fetch every university in `unis`. One failing never stops the others; each records its
+    own health. Returns {uni: stats, or None if it failed}."""
+    out: dict[str, dict | None] = {}
+    for uni in unis:
+        try:
+            out[uni] = run_uni(conn, uni, eth, uzh)
+        except Exception:
+            log.exception("%s room fetch failed", uni)
+            out[uni] = None
+    return out

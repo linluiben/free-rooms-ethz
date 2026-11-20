@@ -23,11 +23,13 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def fetch_args(sp):
+        sp.add_argument("--unis", default=os.environ.get("FREEROOMS_UNIS"),
+                        help="comma-separated universities whose rooms to fetch: ETH,UZH (default: both)")
         sp.add_argument("--days", type=int, default=int(os.environ.get("FREEROOMS_DAYS", 7)))
         sp.add_argument("--buildings", default=os.environ.get("FREEROOMS_BUILDINGS"),
-                        help="comma-separated, e.g. HG,CAB (default: all)")
+                        help="ETH only: comma-separated, e.g. HG,CAB (default: all)")
         sp.add_argument("--delay", type=float, default=float(os.environ.get("FREEROOMS_DELAY", 0.3)),
-                        help="seconds between API requests")
+                        help="seconds between ETH API requests (UZH: fixed 1 s)")
         sp.add_argument("--ratelimit-low", type=int, default=int(os.environ.get("FREEROOMS_RATELIMIT_LOW", api.LOW_REMAINING)),
                         help="slow down when x-ratelimit-remaining is at or below this")
         sp.add_argument("--ratelimit-pause", type=float,
@@ -67,15 +69,24 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if a.cmd in ("fetch", "serve"):
+        try:
+            unis = fetch.parse_unis(a.unis)
+        except ValueError as e:
+            p.error(str(e))
         client = ApiClient(delay=a.delay, low_remaining=a.ratelimit_low, low_pause=a.ratelimit_pause,
                            retry_after_default=a.retry_after_default, retry_after_max=a.retry_after_max)
         kw = {"client": client, "days": a.days, "buildings": _csv(a.buildings),
               "max_age": a.stale_hours * 3600}
+        uzh_kw = {"days": a.days, "max_age": a.stale_hours * 3600}
     if a.cmd == "fetch":
         conn = store.connect(a.db)
-        fetch.run(conn, **kw)
+        res = fetch.run_all(conn, unis, eth=kw, uzh=uzh_kw)
+        for uni, stats in res.items():
+            print(f"{uni}: {stats if stats is not None else 'FAILED (see log)'}")
+        raise SystemExit(1 if any(s is None for s in res.values()) else 0)
     elif a.cmd == "serve":
-        web.serve(a.db, a.host, a.port, a.refresh * 3600 if a.refresh else None, kw, live_on=a.live)
+        web.serve(a.db, a.host, a.port, a.refresh * 3600 if a.refresh else None, kw, live_on=a.live,
+                  unis=unis, uzh_kwargs=uzh_kw)
     elif a.cmd == "live":
         if a.once:
             res = live.run_due(store.connect(a.db), live.Http(), live.discover(), force=a.force)
