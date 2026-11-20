@@ -3,7 +3,8 @@
 GET /                         -> UI (with ?view=spaces the study places are inlined too)
 GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
-GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH
+GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
+                                 404 for rooms of other universities (ETH has no details for them)
 GET /api/places               -> study places with their latest live occupancy sample
 GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
@@ -90,7 +91,11 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 elif url.path == "/api/room":
                     self._json(self._room(qs))
                 elif url.path == "/api/roomdetail":
-                    self._send(200, self._detail(qs).encode(), "application/json; charset=utf-8", "max-age=3600")
+                    body = self._detail(qs)
+                    if body is None:
+                        self._json({"error": "no room details for this university"}, 404)
+                    else:
+                        self._send(200, body.encode(), "application/json; charset=utf-8", "max-age=3600")
                 else:
                     self._send(404, b"not found", "text/plain")
             except ValueError as e:
@@ -170,13 +175,17 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
             finally:
                 conn.close()
 
-        def _detail(self, qs) -> str:
+        def _detail(self, qs) -> str | None:
+            """The room's details as JSON text; None for a room ETH Rauminfo doesn't know (UZH)."""
             rid = qs.get("id") or ""
             conn = store.connect(db_path)
             try:
                 # Only rooms we know: the endpoint must not become an open proxy to ETH.
-                if not conn.execute("SELECT 1 FROM rooms WHERE id=?", (rid,)).fetchone():
+                room = conn.execute("SELECT uni FROM rooms WHERE id=?", (rid,)).fetchone()
+                if not room:
                     raise ValueError("unknown room")
+                if room["uni"] != "ETH":
+                    return None
                 row = conn.execute("SELECT fetched_at, json FROM room_details WHERE room_id=?", (rid,)).fetchone()
                 now = datetime.now(timezone.utc)
                 if row and now - datetime.fromisoformat(row["fetched_at"]) < DETAIL_TTL:

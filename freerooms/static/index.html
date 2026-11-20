@@ -39,6 +39,8 @@
   select, input[type=datetime-local] { font: inherit; font-size: 14px; padding: 5px 8px; border-radius: 8px;
     border: 1px solid var(--line); background: var(--card); color: var(--text); }
   .label { color: var(--muted); font-size: 13px; margin-right: 2px; }
+  .chips { display: contents; }
+  .sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
   main { padding: 10px 16px 40px; }
   .summary { color: var(--muted); font-size: 14px; margin: 4px 0 10px; }
   .summary b { color: var(--text); }
@@ -157,8 +159,7 @@
       <input type="datetime-local" id="at" step="900" aria-label="Pick a time">
     </div>
     <div class="row" id="site">
-      <button class="chip" data-site="Zürich Zentrum">Zentrum</button>
-      <button class="chip" data-site="Zürich Hönggerberg">Hönggerberg</button>
+      <span class="chips" id="sitechips"></span>
       <select id="building" aria-label="Building"><option value="">All buildings</option></select>
     </div>
     <div class="row" id="dur">
@@ -184,6 +185,21 @@ const $ = (s, el = document) => el.querySelector(s);
 const DAY_START = 7, DAY_END = 22;  // timeline range in hours
 const ETH = "https://ethz.ch";
 
+// Campus names as the server stores them (campus.py): one spelling for both universities.
+// ETH Zentrum and UZH Zentrum are next door, so they share one "Zentrum" chip.
+const CAMPUS_ORDER = ["Zentrum", "Hönggerberg", "Irchel", "Oerlikon", "Basel"];
+const CAMPUS_ALIASES = {
+  "zürich zentrum": "Zentrum", "zuerich zentrum": "Zentrum", zentrum: "Zentrum", zz: "Zentrum",
+  "uzh zentrum": "Zentrum", "eth zentrum": "Zentrum",
+  "zürich hönggerberg": "Hönggerberg", "zuerich hoenggerberg": "Hönggerberg", "hönggerberg": "Hönggerberg",
+  hoenggerberg: "Hönggerberg", zh: "Hönggerberg", "eth hönggerberg": "Hönggerberg",
+  irchel: "Irchel", "uzh irchel": "Irchel", oerlikon: "Oerlikon", "uzh oerlikon": "Oerlikon", basel: "Basel", ac: "Basel",
+};
+const canonCampus = s => s == null ? null : CAMPUS_ALIASES[String(s).trim().toLowerCase()] || String(s).trim() || null;
+const campusRank = c => { const i = CAMPUS_ORDER.indexOf(c); return i < 0 ? CAMPUS_ORDER.length : i; };
+const byCampus = (a, b) => campusRank(a) - campusRank(b) || a.localeCompare(b);
+const natural = (a, b) => String(a).localeCompare(String(b), "en", { numeric: true });
+
 const store = {
   get(k, d) { try { const v = localStorage.getItem("fr." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("fr." + k, JSON.stringify(v)); } catch {} },
@@ -191,7 +207,7 @@ const store = {
 const state = {
   view: store.get("view", "rooms"),            // "rooms" | "buildings"
   when: "now",                                   // "now" | minutes offset | ISO string
-  site: store.get("site", "Zürich Zentrum"),
+  where: null,                                   // { uni: "" | "ETH" | "UZH", campus: "" | campus name }, see loadWhere
   building: store.get("building", ""),
   min: store.get("min", 45),
   data: null,
@@ -200,6 +216,34 @@ const state = {
   pushed: false,                                // did we add a history entry for the panel?
 };
 const details = new Map();                       // room id -> detail JSON (or Promise)
+
+// Rooms and Buildings filter. Before Phase 2 it was one ETH site ("Zürich Zentrum"), stored as fr.site.
+function loadWhere() {
+  const w = store.get("where", null);
+  if (w && typeof w === "object") return { uni: w.uni || "", campus: canonCampus(w.campus) || "" };
+  return { uni: "", campus: canonCampus(store.get("site", "Zentrum")) || "" };
+}
+state.where = loadWhere();
+// The same filter model in every view: university chips and campus chips, both optional.
+const matchWhere = (x, f) => (!f.uni || x.uni === f.uni) && (!f.campus || x.campus === f.campus);
+const chip = (attr, val, label, on) => `<button class="chip" data-${attr}="${esc(val)}" aria-pressed="${on}">${esc(label)}</button>`;
+function whereChips(items, f) {
+  const unis = [...new Set(items.map(x => x.uni).filter(Boolean))].sort();
+  const camps = new Set(items.filter(x => x.campus && (!f.uni || x.uni === f.uni)).map(x => x.campus));
+  if (f.campus) camps.add(f.campus);   // keep the chosen one visible, so it can be switched off
+  return (unis.length > 1 ? unis.map(u => chip("uni", u, u, f.uni === u)).join("") + `<span class="sep" aria-hidden="true"></span>` : "") +
+    [...camps].sort(byCampus).map(c => chip("campus", c, c, f.campus === c)).join("");
+}
+// Tap again = off. Picking a university that has nothing on the chosen campus drops the campus.
+function clickWhere(f, data, items) {
+  if (data.uni) {
+    f.uni = f.uni === data.uni ? "" : data.uni;
+    if (f.campus && !items.some(x => matchWhere(x, f))) f.campus = "";
+  } else if (data.campus) f.campus = f.campus === data.campus ? "" : data.campus;
+}
+// Campus and university for a meta line, leaving out what the filter already says.
+const multiUni = items => new Set(items.map(x => x.uni)).size > 1;
+const whereText = (x, f, unis) => [f.campus ? null : x.campus, unis && !f.uni ? x.uni : null].filter(Boolean).join(" · ");
 
 const pad = n => String(n).padStart(2, "0");
 const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -277,15 +321,19 @@ function atParam() {
 async function load() {
   const at = atParam();
   const res = await fetch("api/rooms" + (at ? "?" + q({ at }) : ""));
-  state.data = await res.json();
+  setData(await res.json());
   fillBuildings(); render();
 }
+function setData(d) {
+  for (const r of d.rooms || []) { r.uni ||= "ETH"; r.campus = canonCampus(r.campus || r.site); }
+  state.data = d;
+}
 
-function siteRooms() { return state.data.rooms.filter(r => !state.site || r.site === state.site); }
+function siteRooms() { return state.data.rooms.filter(r => matchWhere(r, state.where)); }
 
 function fillBuildings() {
   const sel = $("#building");
-  const bs = [...new Set(siteRooms().map(r => r.building))].sort();
+  const bs = [...new Set(siteRooms().map(r => r.building))].sort(natural);
   sel.innerHTML = `<option value="">All buildings</option>` + bs.map(b => `<option>${esc(b)}</option>`).join("");
   if (!bs.includes(state.building)) state.building = "";
   sel.value = state.building;
@@ -304,9 +352,9 @@ function timelineBar(timeline, atISO, ticks) {
   return `<div class="bar" aria-hidden="true">${html}</div>${t}`;
 }
 
-function card(r, at) {
+function card(r, at, unis) {
   const soon = r.state === "free" && r.minutes != null && r.minutes < state.min;
-  const meta = [places(r), typeName(r)].filter(Boolean).join(" · ");
+  const meta = [places(r), typeName(r), whereText(r, state.where, unis)].filter(Boolean).join(" · ");
   const warn = r.state !== "unknown" && !r.hours_known ? ` · <span class="warn">opening hours unknown</span>` : "";
   const now = r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : "";
   return `<button class="card ${r.state}${soon ? " soon" : ""}${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
@@ -322,37 +370,40 @@ function whenText(at) {
 function renderRooms(d, at) {
   const rooms = siteRooms().filter(r => !state.building || r.building === state.building);
   // Longest free first; rooms without opening-hours data go last (their "free until" is unreliable).
-  const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) || ((b.seats || b.workplaces || 0) - (a.seats || a.workplaces || 0));
+  const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) ||
+    ((b.seats || b.workplaces || 0) - (a.seats || a.workplaces || 0)) || natural(a.id, b.id);
   const free = rooms.filter(goodFor).sort(byLen);
   const short = rooms.filter(r => r.state === "free" && !goodFor(r)).sort(byLen);
-  const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until)).slice(0, 8);
+  const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until) || natural(a.id, b.id)).slice(0, 8);
+  const unis = multiUni(rooms), c = r => card(r, at, unis);
   const closed = rooms.some(r => r.state === "closed");
 
   $("#summary").innerHTML = `<b>${free.length}</b> room${free.length === 1 ? "" : "s"} free ${whenText(at)}` +
     (state.min ? ` for ${dur(state.min)}+` : "") + ` · ${rooms.length} checked` +
     (state.building && hoursText(state.building) ? ` · ${esc(state.building)} ${hoursText(state.building)}` : "");
-  let html = free.map(r => card(r, at)).join("");
+  let html = free.map(c).join("");
   if (!free.length) html += `<div class="empty">${closed && !short.length ? "Buildings are closed at this time." : "Nothing free for that long. Try a shorter duration."}</div>`;
-  if (short.length) html += `<h2>Free, but only briefly</h2>` + short.map(r => card(r, at)).join("");
-  if (soonFree.length) html += `<h2>Busy, free soon</h2>` + soonFree.map(r => card(r, at)).join("");
+  if (short.length) html += `<h2>Free, but only briefly</h2>` + short.map(c).join("");
+  if (soonFree.length) html += `<h2>Busy, free soon</h2>` + soonFree.map(c).join("");
   $("#list").innerHTML = html;
 }
 
 function renderBuildings(d, at) {
   const by = new Map();
-  for (const r of siteRooms()) {
-    const b = by.get(r.building) || { name: r.building, site: r.site, total: 0, free: 0, seats: 0 };
+  const rooms = siteRooms(), unis = multiUni(rooms);
+  for (const r of rooms) {
+    const b = by.get(r.building) || { name: r.building, uni: r.uni, campus: r.campus, total: 0, free: 0, seats: 0 };
     b.total++;
     if (goodFor(r)) { b.free++; b.seats += r.seats || r.workplaces || 0; }
     by.set(r.building, b);
   }
-  const list = [...by.values()].sort((a, b) => b.free - a.free || b.seats - a.seats || a.name.localeCompare(b.name));
+  const list = [...by.values()].sort((a, b) => b.free - a.free || b.seats - a.seats || natural(a.name, b.name));
   const nFree = list.reduce((s, b) => s + b.free, 0);
   $("#summary").innerHTML = `<b>${nFree}</b> free room${nFree === 1 ? "" : "s"} in <b>${list.filter(b => b.free).length}</b> of ${list.length} buildings ${whenText(at)}` +
     (state.min ? ` for ${dur(state.min)}+` : "");
   $("#list").innerHTML = list.map(b => {
     const hours = hoursText(b.name);
-    const meta = [b.free ? `${b.seats} seats free` : null, hours, state.site ? null : b.site.replace("Zürich ", "")].filter(Boolean).join(" · ");
+    const meta = [b.free ? `${b.seats} seats free` : null, hours, whereText(b, state.where, unis)].filter(Boolean).join(" · ");
     return `<button class="card${b.free ? "" : " soon"}" data-building="${esc(b.name)}">
       <div class="top"><span class="name">${esc(b.name)}</span><span class="count">${b.free} <small>of ${b.total} free</small></span></div>
       <div class="meta">${esc(meta)}</div>
@@ -372,11 +423,17 @@ function render() {
     $("#summary").textContent = "No data yet. The first fetch takes about 1 minute, reload then.";
     $("#list").innerHTML = ""; return;
   }
+  $("#sitechips").innerHTML = whereChips(d.rooms, state.where);
+  const unis = [...new Set(d.rooms.map(r => r.uni))].sort();
+  $("h1 span").textContent = "· " + (unis.length ? unis.join(" & ") : "ETH");
   $("#building").hidden = state.view === "buildings";
   (state.view === "buildings" ? renderBuildings : renderRooms)(d, at);
   renderHealth(d);
   const lf = new Date(d.last_fetch).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" });
-  $("#footer").innerHTML = `Data from ETH Rauminfo, fetched ${lf}. Only centrally managed rooms (Rektoratsräume) are listed, since other rooms are booked through channels that aren't published. “Free” means nothing is scheduled. The room may still be locked or used informally, and short-notice bookings can be missing. Not an official ETH service.`;
+  const uzh = unis.includes("UZH");
+  $("#footer").innerHTML = `Data from ETH Rauminfo${uzh ? " and UZH 3V-Rooms" : ""}, fetched ${lf}. ` +
+    `For ETH, only centrally managed rooms (Rektoratsräume) are listed, since other rooms are booked through channels that aren't published. ` +
+    `“Free” means nothing is scheduled. The room may still be locked or used informally, and short-notice bookings can be missing. Not an official ${uzh ? "ETH or UZH" : "ETH"} service.`;
   if (state.room) renderPanel();
 }
 
@@ -404,10 +461,20 @@ function loadDetail(id) {
     .then(det => { details.set(id, det); if (det.error) setTimeout(() => details.delete(id), 30000); if (state.room === id) $("#pdetail").innerHTML = detailHTML(det); });
 }
 
+// Official UZH pages (checked Nov 2026): the map selects the building and links its floor plans;
+// the 3V-Rooms calendar opens anonymously on today's Zentrum overview (no deep link to one room).
+const UZH_MAP = b => `https://plaene.uzh.ch/?${q({ buildingCode: b })}`;
+const UZH_CALENDAR = "https://uzh.book.3vrooms.app/default/Anonymous/Calendar/PortalFind";
+const UZH_ACCESS = b => `https://www.uniability.uzh.ch/static/current/buildings/${encodeURIComponent(b)}/`;
+const ext = (href, label) => `<a href="${esc(href)}" target="_blank" rel="noopener">${label} ↗</a>`;
+
 function renderPanel() {
   const r = state.data.rooms.find(x => x.id === state.room);
   if (!r) { closePanel(); return; }
-  const at = state.data.at;
+  const at = state.data.at, eth = r.uni === "ETH";
+  // The 5-minute refresh rebuilds the panel: keep keyboard focus, scroll and open <details>.
+  const refresh = $("#panel").dataset.room === r.id;
+  const focus = refresh ? panelFocus() : null, keepOpen = refresh && !!$("#panel details")?.open;
   const loc = { building: r.building, floor: r.floor, room: r.room };
   const day = at.slice(0, 10) === state.data.now.slice(0, 10) ? "Today" : new Date(at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
   // Cancelled entries (type 13 / findetStatt 0) are listed struck through: other tools show them as booked.
@@ -420,7 +487,7 @@ function renderPanel() {
   const svg = `${ETH}/content/dam/ethz/common/images/arealplaene/gebaeudeorientierung/${encodeURIComponent(r.building)}.svg`;
   $("#panel").innerHTML = `<div class="grab"></div>
     <div class="ph"><div><div class="name">${esc(r.id)}</div>
-      <div class="meta">${esc([typeName(r), places(r), r.site].filter(Boolean).join(" · "))}</div></div>
+      <div class="meta">${esc([typeName(r), places(r), r.campus, r.uni].filter(Boolean).join(" · "))}</div></div>
       <button class="x" id="close" aria-label="Close">✕</button></div>
     <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
     ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
@@ -428,17 +495,29 @@ function renderPanel() {
     <h3>${esc(day)}</h3>
     ${timelineBar(r.timeline, at, true)}
     <div class="evts" style="margin-top:8px">${evts}</div>
-    <div class="links">
-      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails.html?${q(loc)}" target="_blank" rel="noopener">Room details ↗</a>
-      <a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?${q({ room: r.id, ...weekOf(at) })}" target="_blank" rel="noopener">Schedule ↗</a>
-      <a href="${ETH}/staffnet/de/utils/location.html?${q(loc)}" target="_blank" rel="noopener">Location ↗</a>
+    ${eth ? `<div class="links">
+      ${ext(`${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails.html?${q(loc)}`, "Room details")}
+      ${ext(`${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails/allocation.html?${q({ room: r.id, ...weekOf(at) })}`, "Schedule")}
+      ${ext(`${ETH}/staffnet/de/utils/location.html?${q(loc)}`, "Location")}
     </div>
     <h3>About this room</h3>
     <div id="pdetail">${detailHTML(details.get(r.id))}</div>
     <h3>Where is ${esc(r.building)}</h3>
     <a class="plan" href="${svg}" target="_blank" rel="noopener"><img src="${svg}" alt="Campus map with building ${esc(r.building)}" loading="lazy"></a>
-    <div class="note">Campus map from ETH. The floor plan with the room highlighted is on the Location page and needs an ETH login.</div>`;
-  loadDetail(r.id);
+    <div class="note">Campus map from ETH. The floor plan with the room highlighted is on the Location page and needs an ETH login.</div>`
+    : `<div class="links">
+      ${ext(UZH_MAP(r.building), `Map of ${esc(r.building)}`)}
+      ${ext(UZH_CALENDAR, "UZH room calendar")}
+      ${ext(UZH_ACCESS(r.building), "Accessibility")}
+    </div>
+    <h3>About this room</h3>
+    <dl class="kv">${[["Type", r.type], ["Seats", r.seats], ["Building", r.building], ["Floor", r.floor], ["Campus", r.campus]]
+      .filter(([, v]) => v != null && v !== "").map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    <div class="note">The map shows where ${esc(r.building)} is and has its floor plans (“Stockwerkpläne”). The UZH room calendar opens on today's Zentrum overview: pick the campus there, then find ${esc(r.id)}.</div>`}`;
+  $("#panel").dataset.room = r.id;
+  if (keepOpen && $("#panel details")) $("#panel details").open = true;
+  if (focus) restorePanelFocus(focus);
+  if (eth) loadDetail(r.id);
   for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
   document.querySelector(`.card[data-id="${CSS.escape(r.id)}"]`)?.classList.add("sel");
 }
@@ -457,7 +536,8 @@ function openPanel(id, push = true, kind = "room") {
     state.view = "spaces"; render(); if (!state.places) loadPlaces();
     if (!state.place) return;      // render() already closed it: unknown id
   }
-  if (kind === "room") delete $("#panel").dataset.place;
+  if (kind === "room" && state.view === "spaces") { state.view = "rooms"; render(); }   // e.g. Back to a #room= entry
+  delete $("#panel").dataset[kind === "room" ? "place" : "room"];
   $("#panel").setAttribute("aria-label", kind === "room" ? "Room details" : "Study place details");
   document.body.classList.add("panel-open");
   (kind === "room" ? renderPanel : renderPlacePanel)();
@@ -468,7 +548,7 @@ function closePanel(fromHistory = false) {
   const id = state.room || state.place;
   if (!id) return;
   state.room = state.place = null;
-  delete $("#panel").dataset.place;   // reopening later is a fresh open, not a refresh
+  delete $("#panel").dataset.place; delete $("#panel").dataset.room;   // reopening later is a fresh open, not a refresh
   document.body.classList.remove("panel-open");
   for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
   if (!fromHistory) {
@@ -489,7 +569,6 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && (state.roo
 // --- study spaces ---
 const PLACES_EVERY = 60 * 1000;
 const STALE_S = 15 * 60;              // a sample older than this is shown as stale, not as current
-const CAMPUS = { ZZ: "Zentrum", ZH: "Hönggerberg", AC: "Other campus" };
 // Nice labels for known feature keys. MAIN_FEATURES are always offered as chips (when present in the data);
 // any other key goes under "More…" with the label the source gave it.
 const FEATURES = {
@@ -500,7 +579,12 @@ const FEATURES = {
   "aus.stromwenig": "Few sockets", "food.mensa": "Mensa", "food.cafeteria": "Cafeteria",
 };
 const MAIN_FEATURES = ["Quiet", "Sockets", "24 h", "Windows"];
-Object.assign(state, { places: null, placesAt: 0, placesErr: false, sp: store.get("sp", { uni: "", campus: "", feats: [] }), spMore: false });
+Object.assign(state, { places: null, placesAt: 0, placesErr: false, sp: loadSp(), spMore: false });
+// Older versions keyed the campus filter by "uni|campus" (e.g. "ETH|ZZ"): keep just the campus.
+function loadSp() {
+  const f = store.get("sp", null) || {};
+  return { uni: f.uni || "", campus: canonCampus(String(f.campus || "").split("|").pop()) || "", feats: Array.isArray(f.feats) ? f.feats : [] };
+}
 
 async function loadPlaces() {
   try {
@@ -604,12 +688,11 @@ function aggregate(kids) {
   const count = ss.reduce((a, s) => a + s.count, 0), max = ss.reduce((a, s) => a + s.max, 0);
   return { status: null, pct: count / max * 100, count, max, trend: null, closed: false, age_s: Math.max(...ss.map(s => s.age_s)) };
 }
-const campusKey = p => `${p.uni}|${p.campus}`;
 const featKeys = p => { const k = new Set(p.features.map(f => FEATURES[f.key] || f.label || f.key)); if (is24(p)) k.add("24 h"); return k; };
 
 function spaceCard(r, closed) {
   const { p, o, h } = r;
-  const where = [p.building && p.building !== p.name ? p.building : null, CAMPUS[p.campus] || p.campus, p.uni].filter(Boolean).join(" · ");
+  const where = [p.building && p.building !== p.name ? p.building : null, p.campus, p.uni].filter(Boolean).join(" · ");
   const tags = [...featKeys(p)].filter(k => MAIN_FEATURES.includes(k) && k !== "24 h");
   const subs = p.kids.length ? `<div class="subs">${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
     return `<div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>`; }).join("")}</div>` : "";
@@ -620,18 +703,12 @@ function spaceCard(r, closed) {
 }
 
 function renderSpaceFilters(all) {
-  const f = state.sp, chip = (attr, val, label, on) => `<button class="chip" data-${attr}="${esc(val)}" aria-pressed="${on}">${esc(label)}</button>`;
-  const unis = [...new Set(all.map(p => p.uni).filter(Boolean))].sort();
-  // Campus codes are per university ("Zentrum" exists at both), so a campus chip is keyed by uni|campus.
-  const campuses = [...new Map(all.filter(p => p.campus && (!f.uni || p.uni === f.uni))
-    .map(p => [campusKey(p), CAMPUS[p.campus] || p.campus])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  const dup = l => campuses.filter(c => c[1] === l).length > 1;
+  const f = state.sp;
   const keys = new Set(all.flatMap(p => [p, ...p.kids].flatMap(x => [...featKeys(x)])));
   const main = MAIN_FEATURES.filter(k => keys.has(k)), more = [...keys].filter(k => !MAIN_FEATURES.includes(k)).sort();
   const shownMore = state.spMore ? more : more.filter(k => f.feats.includes(k));
   $("#sfilter").innerHTML =
-    `<div class="row">${unis.length > 1 ? unis.map(u => chip("uni", u, u, f.uni === u)).join("") : ""}` +
-    campuses.map(([k, l]) => chip("campus", k, dup(l) ? `${l} (${k.split("|")[0]})` : l, f.campus === k)).join("") + `</div>` +
+    `<div class="row">${whereChips(all, f)}</div>` +
     `<div class="row">${[...main, ...shownMore].map(k => chip("feat", k, k, f.feats.includes(k))).join("")}` +
     (more.length ? `<button class="chip more" data-more="1">${state.spMore ? "Fewer" : "More…"}</button>` : "") + `</div>`;
 }
@@ -646,7 +723,7 @@ function renderSpaces() {
   renderSpaceFilters(top);
   const f = state.sp;
   const has = (p, k) => featKeys(p).has(k) || p.kids.some(c => featKeys(c).has(k));
-  const shown = top.filter(p => (!f.uni || p.uni === f.uni) && (!f.campus || campusKey(p) === f.campus) && f.feats.every(k => has(p, k)));
+  const shown = top.filter(p => matchWhere(p, f) && f.feats.every(k => has(p, k)));
   const rows = shown.map(p => ({ p, o: occ(p.latest || aggregate(p.kids), p.seats, p.source), h: hoursInfo(p, d.now) }));
   // Open places with live data first (most free on top), then old data, then no data; closed ones last.
   const cmp = (a, b) => a.o.rank - b.o.rank || (b.o.free ?? -1) - (a.o.free ?? -1) || a.p.name.localeCompare(b.p.name);
@@ -666,7 +743,7 @@ function renderSpaces() {
 
 // Places by id, with each library's floors in `kids`; `top` are the ones listed as cards.
 function placeTree(d) {
-  const byId = new Map(d.places.map(p => [p.id, { ...p, features: p.features || [], kids: [] }]));
+  const byId = new Map(d.places.map(p => [p.id, { ...p, campus: canonCampus(p.campus), features: p.features || [], kids: [] }]));
   for (const p of byId.values()) if (p.parent_id && byId.has(p.parent_id)) byId.get(p.parent_id).kids.push(p);
   const top = [...byId.values()].filter(p => !p.parent_id || !byId.has(p.parent_id));
   for (const p of top) p.kids.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
@@ -793,7 +870,7 @@ function renderPlacePanel() {
   if (!p) { closePanel(); return; }
   const parent = p.parent_id && byId.get(p.parent_id);
   const o = occ(p.latest || aggregate(p.kids), p.seats, p.source), s = p.latest;
-  const where = [p.building && p.building !== p.name ? p.building : null, CAMPUS[p.campus] || p.campus, p.uni,
+  const where = [p.building && p.building !== p.name ? p.building : null, p.campus, p.uni,
     p.seats ? `${p.seats} seats` : null].filter(Boolean).join(" · ");
   const measured = s ? [s.count != null && !s.closed ? `${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
       `measured ${fmtAge(s.age_s)} ago`, SAMPLE_SOURCES[sampleSource(p)] || SOURCE_NAMES[sampleSource(p)] || sampleSource(p)].filter(Boolean).join(" · ")
@@ -849,8 +926,7 @@ $("#sfilter").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if (!b) return;
   const f = state.sp, x = b.dataset;
   if (x.more) state.spMore = !state.spMore;
-  else if (x.uni) { f.uni = f.uni === x.uni ? "" : x.uni; f.campus = ""; }
-  else if (x.campus) f.campus = f.campus === x.campus ? "" : x.campus;
+  else if (x.uni || x.campus) clickWhere(f, x, state.places ? placeTree(state.places).top : []);
   else if (x.feat) f.feats = f.feats.includes(x.feat) ? f.feats.filter(k => k !== x.feat) : [...f.feats, x.feat];
   store.set("sp", f); render();
 });
@@ -876,9 +952,9 @@ $("#at").addEventListener("change", e => {
   state.when = e.target.value; press("when", "when", "-"); load();
 });
 $("#site").addEventListener("click", e => {
-  const b = e.target.closest(".chip"); if (!b) return;
-  state.site = state.site === b.dataset.site ? "" : b.dataset.site;   // tap again = all sites
-  store.set("site", state.site); press("site", "site", state.site); fillBuildings(); render();
+  const b = e.target.closest(".chip"); if (!b || !state.data) return;
+  clickWhere(state.where, b.dataset, state.data.rooms);
+  store.set("where", state.where); fillBuildings(); render();
 });
 $("#building").addEventListener("change", e => { state.building = e.target.value; store.set("building", state.building); render(); });
 $("#dur").addEventListener("click", e => {
@@ -903,7 +979,7 @@ const params = new URLSearchParams(location.search);
 const urlAt = params.get("at");                     // shareable: /?at=2026-11-12T14:00
 if (["rooms", "buildings", "spaces"].includes(params.get("view"))) state.view = params.get("view");   // /?view=buildings
 if (urlAt) { state.when = urlAt; $("#at").value = urlAt.slice(0, 16); press("when", "when", "-"); }
-press("site", "site", state.site); press("dur", "min", state.min);
+press("dur", "min", state.min);
 const INITIAL = /*INITIAL_DATA*/null;
 const startPanel = panelFromHash();
 if (startPanel?.kind === "place") state.view = "spaces";   // /?view=spaces#place=eth_studyspaces:HGH30.1
@@ -913,7 +989,7 @@ function start() {
 const INITIAL_PLACES = /*INITIAL_PLACES*/null;    // only inlined for /?view=spaces
 if (INITIAL_PLACES) { state.places = INITIAL_PLACES; state.placesAt = Date.now(); }
 if (startPanel?.kind === "place") openPanel(startPanel.id, false, "place");   // closes itself if the id is unknown
-if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); start(); } else load().then(start);
+if (INITIAL) { setData(INITIAL); fillBuildings(); render(); start(); } else load().then(start);
 if (state.view === "spaces" && !INITIAL_PLACES) loadPlaces();
 setInterval(() => { if (state.when === "now") load(); }, 5 * 60 * 1000);
 // Occupancy changes by the minute: refresh study spaces every 60 s, but only while they're on screen.
