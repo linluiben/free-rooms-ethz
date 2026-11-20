@@ -82,6 +82,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                         data = json.dumps(self._places(), ensure_ascii=False).replace("</", "<\\/")
                         html = html.replace("/*INITIAL_PLACES*/null", data, 1)
                     self._send(200, html.encode(), "text/html; charset=utf-8")
+                elif url.path == "/overpass.woff2":   # the UI's typeface (OFL, see static/overpass-OFL.txt)
+                    self._send(200, (STATIC / "overpass.woff2").read_bytes(), "font/woff2", "public, max-age=604800")
                 elif url.path == "/healthz":
                     self._send(200, b"ok", "text/plain")
                 elif url.path == "/api/health":

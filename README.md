@@ -8,7 +8,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours. Same university and campus filter as the Rooms view.
 - **Study spaces view** (`/?view=spaces`, needs `serve --live`): ETH study spaces and ETH/UZH libraries with a traffic light, “~X% free of N”, a trend arrow and today's opening hours (meal times in mensas count as closed for studying). Library floors are listed under their library. You can filter by university, campus and features (quiet, sockets, 24 h, windows, more under “More…”). Places without a live number say “no live data”. A number older than 15 min is greyed out and shows its age. The list refreshes every minute while it's on screen.
 
-The university and campus choice is shared by all three views and remembered (default: Zentrum). UZH's Botanischer Garten library counts as Zentrum.
+The university and campus choice is shared by all three views and remembered (default: Zentrum). UZH's Botanischer Garten library counts as Zentrum. A button at the bottom of the page switches to colour-blind safe colours (blue and orange instead of green and red), also remembered.
 
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
 - One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
