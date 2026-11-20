@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime
 
-from . import api, fetch, store, web
+from . import api, fetch, live, store, web
 from .api import ApiClient
 from .availability import now_local, query
 
@@ -50,6 +50,12 @@ def main() -> None:
     s.add_argument("--refresh", type=float, default=float(os.environ.get("FREEROOMS_REFRESH_HOURS", 0)),
                    help="refetch in the background every N hours (0 = off, use cron instead)")
     fetch_args(s)
+    s.add_argument("--live", action="store_true", default=os.environ.get("FREEROOMS_LIVE", "") not in ("", "0"),
+                   help="also run the live occupancy sources (study spaces, libraries) in the background")
+
+    lv = sub.add_parser("live", help="fetch live occupancy (study spaces, libraries)")
+    lv.add_argument("--once", action="store_true", help="run the sources that are due once and exit (for cron)")
+    lv.add_argument("--force", action="store_true", help="with --once: run every source, due or not")
 
     n = sub.add_parser("now", help="print free rooms from the DB")
     n.add_argument("--at", help="local time, e.g. 2026-11-12T14:00")
@@ -69,7 +75,14 @@ def main() -> None:
         conn = store.connect(a.db)
         fetch.run(conn, **kw)
     elif a.cmd == "serve":
-        web.serve(a.db, a.host, a.port, a.refresh * 3600 if a.refresh else None, kw)
+        web.serve(a.db, a.host, a.port, a.refresh * 3600 if a.refresh else None, kw, live_on=a.live)
+    elif a.cmd == "live":
+        if a.once:
+            res = live.run_due(store.connect(a.db), live.Http(), live.discover(), force=a.force)
+            for key, counts in res.items():
+                print(f"{key}: {counts if counts is not None else 'FAILED (see log)'}")
+            raise SystemExit(1 if any(c is None for c in res.values()) else 0)
+        live.loop(a.db)
     elif a.cmd == "now":
         t = datetime.fromisoformat(a.at) if a.at else now_local()
         rooms = query(store.connect(a.db), t)

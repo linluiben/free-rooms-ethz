@@ -1,9 +1,10 @@
 """Tiny stdlib web server: static UI + JSON API reading from SQLite.
 
-GET /                         -> UI
+GET /                         -> UI (with ?view=spaces the study places are inlined too)
 GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH
+GET /api/places               -> study places with their latest live occupancy sample
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
 """
@@ -19,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, store
+from . import fetch, live, places, store
 from .api import ApiClient
 from .availability import building_hours, now_local, query
 
@@ -40,8 +41,9 @@ def simplify_detail(raw: dict) -> dict:
     return {"description": raw.get("description"), "info": raw.get("infoText"), "tabs": tabs}
 
 
-def make_handler(db_path: str, client: ApiClient | None = None):
+def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tuple[str, ...] = ()):
     client = client or ApiClient()
+    sources = (*SOURCES, *live_sources)  # listed in health even before their first fetch
     detail_lock = threading.Lock()   # one upstream request at a time
     class Handler(BaseHTTPRequestHandler):
         server_version = "free-rooms-ethz"
@@ -68,12 +70,17 @@ def make_handler(db_path: str, client: ApiClient | None = None):
                     # Inline the current data so the first paint needs no extra request.
                     data = json.dumps(self._rooms({k: v for k, v in qs.items() if k == "at"}), ensure_ascii=False).replace("</", "<\\/")
                     html = (STATIC / "index.html").read_text().replace("/*INITIAL_DATA*/null", data, 1)
+                    if qs.get("view") == "spaces":
+                        data = json.dumps(self._places(), ensure_ascii=False).replace("</", "<\\/")
+                        html = html.replace("/*INITIAL_PLACES*/null", data, 1)
                     self._send(200, html.encode(), "text/html; charset=utf-8")
                 elif url.path == "/healthz":
                     self._send(200, b"ok", "text/plain")
                 elif url.path == "/api/health":
                     h = self._health()  # 503 when stale, so plain uptime monitors notice
                     self._json(h, 503 if h["status"] == "stale" else 200)
+                elif url.path == "/api/places":
+                    self._json(self._places())
                 elif url.path == "/api/rooms":
                     self._json(self._rooms(qs))
                 elif url.path == "/api/room":
@@ -96,7 +103,7 @@ def make_handler(db_path: str, client: ApiClient | None = None):
                     "at": t.isoformat(timespec="minutes"),
                     "now": now_local().isoformat(timespec="minutes"),
                     "last_fetch": store.get_meta(conn, "last_fetch"),
-                    "health": store.health(conn, SOURCES),
+                    "health": store.health(conn, sources),
                     "rooms": query(conn, t),
                     "buildings": building_hours(conn, t),
                 }
@@ -106,7 +113,15 @@ def make_handler(db_path: str, client: ApiClient | None = None):
         def _health(self):
             conn = store.connect(db_path)
             try:
-                return store.health(conn, SOURCES)
+                return store.health(conn, sources)
+            finally:
+                conn.close()
+
+        def _places(self):
+            conn = store.connect(db_path)
+            try:
+                return {"now": now_local().isoformat(timespec="minutes"),
+                        "health": store.health(conn, sources), "places": places.latest(conn)}
             finally:
                 conn.close()
 
@@ -171,11 +186,17 @@ def refresher(db_path: str, every: float, fetch_kwargs: dict) -> None:
         time.sleep(max(60, every - age))
 
 
-def serve(db_path: str, host: str, port: int, refresh: float | None, fetch_kwargs: dict) -> None:
+def serve(db_path: str, host: str, port: int, refresh: float | None, fetch_kwargs: dict,
+          live_on: bool = False) -> None:
+    live_keys: tuple[str, ...] = ()
+    if live_on:
+        srcs = live.discover()
+        live_keys = tuple(s.key for s in srcs)
+        threading.Thread(target=live.loop, args=(db_path, None, srcs), daemon=True).start()
     if refresh:
         # Data may be up to one interval old by design; only flag it once a refresh is clearly overdue.
         fetch_kwargs = {**fetch_kwargs, "max_age": max(fetch_kwargs.get("max_age") or store.DEFAULT_MAX_AGE, 1.5 * refresh)}
         threading.Thread(target=refresher, args=(db_path, refresh, fetch_kwargs), daemon=True).start()
-    httpd = ThreadingHTTPServer((host, port), make_handler(db_path, fetch_kwargs.get("client")))
+    httpd = ThreadingHTTPServer((host, port), make_handler(db_path, fetch_kwargs.get("client"), live_keys))
     log.info("serving on http://%s:%d", host, port)
     httpd.serve_forever()

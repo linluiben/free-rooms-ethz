@@ -6,6 +6,7 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 
 - **Rooms view:** free rooms sorted by how long they stay free, with a day timeline. Tap a room for details: today's bookings, seats, windows, sockets, whether food is allowed, a campus map, and links to the official room details, schedule and location pages.
 - **Buildings view:** how many rooms are free in each building for the chosen time and duration, plus the building's opening hours.
+- **Study spaces view** (`/?view=spaces`, needs `serve --live`): ETH study spaces and ETH/UZH libraries with a traffic light, “~X% free of N”, a trend arrow and today's opening hours (meal times in mensas count as closed for studying). Library floors are listed under their library. You can filter by university, campus and features (quiet, sockets, 24 h, windows, more under “More…”). Places without a live number say “no live data”. A number older than 15 min is greyed out and shows its age. The list refreshes every minute while it's on screen.
 
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
 - One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
@@ -18,9 +19,10 @@ The ETH [Rauminfo](https://ethz.ch/staffnet/de/service/raeume-gebaeude/rauminfo.
 python3 -m freerooms fetch            # ~1 min, writes data/freerooms.sqlite
 python3 -m freerooms now --min 60     # CLI: rooms free for at least 1h
 python3 -m freerooms serve            # UI on http://127.0.0.1:8000
+python3 -m freerooms serve --live     # ... plus live study-space occupancy every 5 min
 ```
 
-`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`.
+`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`. `/api/places` lists the study places with their latest occupancy sample.
 
 `/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
 
@@ -36,6 +38,7 @@ Options (flags or env vars):
 | `--ratelimit-pause` | `FREEROOMS_RATELIMIT_PAUSE` | `1` | seconds between requests while the limit is low |
 | `--retry-after-default` | `FREEROOMS_RETRY_AFTER_DEFAULT` | `60` | wait after a `429` without a usable `Retry-After` |
 | `--retry-after-max` | `FREEROOMS_RETRY_AFTER_MAX` | `300` | never wait longer than this after a `429` |
+| `--live` (serve) | `FREEROOMS_LIVE` | off | also run the live occupancy sources in the background |
 | `--refresh` (serve) | `FREEROOMS_REFRESH_HOURS` | `0` | background refetch interval in hours |
 | `--stale-hours` | `FREEROOMS_STALE_HOURS` | `4` | mark data stale after N hours (with `--refresh`, at least 1.5× the interval) |
 | `--host` / `--port` | `FREEROOMS_HOST` / `_PORT` | `127.0.0.1` / `8000` | |
@@ -50,7 +53,7 @@ mkdir -p data && docker compose up -d --build   # serves :8000, refetches every 
 
 The container runs as uid 1000, so `./data` must be writable by that user. Put it behind your reverse proxy (Caddy/Traefik/nginx) if it should be reachable from outside.
 
-Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2`. Alternatively, run `serve` without `--refresh` and add a cron job for `python3 -m freerooms fetch` (e.g. `0 6-21/2 * * *`).
+Without Docker, use a systemd service running `python3 -m freerooms serve --host 0.0.0.0 --refresh 2 --live`. Alternatively, run `serve` without `--refresh`/`--live` and use cron: `python3 -m freerooms fetch` for the rooms (e.g. `0 6-21/2 * * *`) and `python3 -m freerooms live --once` for live occupancy (`*/5 * * * *`; each source still only runs when it is due, e.g. the ETH study-space list hourly).
 
 ## How it works
 
@@ -88,6 +91,16 @@ The API also lists rooms managed by individual departments (e.g. HG G 19.1). Tho
 The schedule page's "back to room details" link goes to whichever room's details page you last opened on ethz.ch, because ETH stores it in your browser. If you open a schedule straight from this tool, "back" can therefore lead to a different room. The *Room details* link avoids this. The floor plan with the room highlighted (on the *Location* page) needs an ETH login, so the UI shows ETH's public campus map instead.
 
 All times are naive Europe/Zurich local time, as the API returns them.
+
+### Live occupancy (study spaces and libraries)
+
+Separate from the room schedules, `live.py` runs the sources in [`freerooms/sources/`](freerooms/sources/), each on its own interval (live numbers every 5 min, metadata hourly). Every module there that defines `SOURCES` is picked up automatically. A failing source is logged and shown in `/api/health`; it never blocks the others. Places go into the `places` table and **every sample is kept** in `occupancy` (basis for "popular times" later; about 100 places × 288 samples a day stays small; a sensor that keeps reporting "no data" is stored once, not every 5 minutes). `occupancy.pct` is always the share *occupied*, even for sources that report "% free". `/api/places` returns every place with its latest sample. Sources that only report a number get a shared traffic light (`places.status_for`): green below 70 % occupied, yellow below 90 %, red above. The UI shows exact percentages for sources that count people (ETH, ICBP) and "~" with 5 % steps for UZH, which only reports rounded values.
+
+Sources:
+
+- **ETH study spaces** (`eth_studyspaces`, hourly): the 66 spaces from `ethz.ch/bin/ethz/studyspaces.json` with seats, opening hours (incl. mensa meal times when there's no studying), features and 24-hour access. **ETH live occupancy** (`eth_availability`, every 5 min): `…/studyspaces/availability.json`, with ETH's own traffic light; people counts for about a dozen spaces. Three seminar rooms with a people counter (CHN F 46, HIL B 21, ML H 37.1) are listed too, with a note to check their bookings in the Rooms view.
+- **ICBP Infozentrum** (`icbp`, every 5 min): the chemistry/biology library in HCI, as a whole and per floor (G, H, J), from the feed behind [infoz01.ethz.ch](https://infoz01.ethz.ch). Its numbers are attached to ETH's study space HCI G 5.1 (whose own sensor is silent), with the floors nested under it.
+- **UZH libraries** (`uzh_ub`): The `uzh_ub` live source reads the 12 occupancy widgets from the [UB overview page](https://www.ub.uzh.ch/de/ub-besuchen/belegung-alle.html) every 5 minutes, one request every 0.5 s. A label like "ca. 30% frei von 120" becomes 70 % occupied of 120 seats. "> 95% frei" is stored as 3 % occupied (like the widget's own bar), and "geschlossen" as closed. Widget 22 ("von 500") is listed as UB Rechtswissenschaft with an *unconfirmed* note: UZH doesn't link it anywhere, but the UB Recht page says "rund 500 Arbeitsplätze". Names, buildings and coordinates are a static table in [`freerooms/sources/uzh_ub.py`](freerooms/sources/uzh_ub.py).
 
 ## Development
 

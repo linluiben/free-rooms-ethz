@@ -107,6 +107,23 @@
   .plan { display: block; margin-top: 4px; background: #fff; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; }
   .plan img { display: block; width: 100%; height: auto; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  /* Study spaces */
+  @media (max-width: 420px) { h1 span { display: none; } }
+  .card.scard { cursor: default; }
+  .dot { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 7px;
+    background: var(--closed); vertical-align: baseline; }
+  .dot.green { background: var(--free); } .dot.yellow { background: var(--warn); } .dot.red { background: var(--busy); }
+  .dot.unknown, .dot.closed { background: none; box-shadow: inset 0 0 0 2px var(--closed); }
+  .s-green { color: var(--free); } .s-yellow { color: var(--warn); } .s-red { color: var(--busy); }
+  .s-unknown, .s-closed { color: var(--closed); }
+  .scard .name { font-variant-numeric: normal; }
+  .open-now { color: var(--free); } .shut-now { color: var(--busy); }
+  .subs { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .sub { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 3px 0; }
+  .sub .status { font-size: 13px; }
+  .srclink { color: var(--accent); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  .chip.more { background: none; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -117,6 +134,7 @@
       <div class="seg" id="view" role="group" aria-label="View">
         <button data-view="rooms" aria-pressed="true">Rooms</button>
         <button data-view="buildings" aria-pressed="false">Buildings</button>
+        <button data-view="spaces" aria-pressed="false" aria-label="Study spaces">Study</button>
       </div>
     </div>
     <div class="row" id="when">
@@ -137,6 +155,7 @@
       <button class="chip" data-min="90">1½h+</button>
       <button class="chip" data-min="180">3h+</button>
     </div>
+    <div id="sfilter" hidden></div>
   </div>
 </header>
 <main class="wrap">
@@ -209,7 +228,10 @@ function hoursText(b) {
   if (!h) return null;
   return h.closed ? "closed all day" : `open ${h.open}–${h.close}`;
 }
-const SOURCE_NAMES = { eth_rooms: "Room bookings" };
+const SOURCE_NAMES = {
+  eth_rooms: "Room bookings", eth_studyspaces: "ETH study space list", eth_availability: "ETH study space occupancy",
+  icbp: "ICBP library occupancy", uzh_ub: "UZH library occupancy",
+};
 function ago(iso) {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
   if (min < 1) return "just now";
@@ -218,15 +240,16 @@ function ago(iso) {
   return `${Math.round(min / 1440)} days ago`;
 }
 // Freshness is judged against the browser clock, so it keeps ticking between reloads.
-function renderHealth(d) {
+function renderHealth(d, main = "eth_rooms") {
   const srcs = Object.entries(d.health?.sources || {});
   const stale = srcs.filter(([, s]) => !s.last_success || Date.now() - new Date(s.last_success) > s.max_age_s * 1000);
   $("#stale").hidden = !stale.length;
   $("#stale").innerHTML = stale.map(([k, s]) => `<b>${esc(SOURCE_NAMES[k] || k)} may be out of date</b>: ` +
     (s.last_success ? `last updated ${ago(s.last_success)}` : "never updated") +
-    (s.last_error ? ", the last update failed" : "") + ". Check ETH's own room schedule before relying on it.").join("<br>");
-  const rooms = d.health?.sources?.eth_rooms;
-  if (rooms?.last_success) $("#summary").insertAdjacentHTML("beforeend",
+    (s.last_error ? ", the last update failed" : "") +
+    (k === "eth_rooms" ? ". Check ETH's own room schedule before relying on it." : ". Occupancy shown may be old.")).join("<br>");
+  const rooms = d.health?.sources?.[main];
+  if (main && rooms?.last_success) $("#summary").insertAdjacentHTML("beforeend",
     ` · <span${stale.length ? ' class="warn"' : ""}>updated ${ago(rooms.last_success)}</span>`);
 }
 const goodFor = r => r.state === "free" && (r.minutes ?? 1e9) >= state.min;
@@ -324,12 +347,17 @@ function renderBuildings(d, at) {
 }
 
 function render() {
-  const d = state.data, at = d.at;
+  const spaces = state.view === "spaces";
+  for (const b of document.querySelectorAll("#view button")) b.setAttribute("aria-pressed", String(b.dataset.view === state.view));
+  for (const id of ["#when", "#site", "#dur"]) $(id).hidden = spaces;
+  $("#sfilter").hidden = !spaces;
+  if (spaces) { renderSpaces(); return; }
+  const d = state.data, at = d?.at;
+  if (!d) { $("#summary").textContent = "Loading…"; $("#list").innerHTML = ""; return; }
   if (!d.last_fetch) {
     $("#summary").textContent = "No data yet. The first fetch takes about 1 minute, reload then.";
     $("#list").innerHTML = ""; return;
   }
-  for (const b of document.querySelectorAll("#view button")) b.setAttribute("aria-pressed", String(b.dataset.view === state.view));
   $("#building").hidden = state.view === "buildings";
   (state.view === "buildings" ? renderBuildings : renderRooms)(d, at);
   renderHealth(d);
@@ -435,13 +463,205 @@ $("#panel").addEventListener("click", e => { if (e.target.closest("#close")) clo
 $("#shade").addEventListener("click", () => closePanel());
 document.addEventListener("keydown", e => { if (e.key === "Escape" && state.room) closePanel(); });
 
+// --- study spaces ---
+const PLACES_EVERY = 60 * 1000;
+const STALE_S = 15 * 60;              // a sample older than this is shown as stale, not as current
+const CAMPUS = { ZZ: "Zentrum", ZH: "Hönggerberg", AC: "Other campus" };
+// Nice labels for known feature keys. MAIN_FEATURES are always offered as chips (when present in the data);
+// any other key goes under "More…" with the label the source gave it.
+const FEATURES = {
+  "um.ruhig": "Quiet", quiet: "Quiet", "aus.stromviel": "Sockets", sockets: "Sockets", "24h": "24 h",
+  "aus.fenster": "Windows", windows: "Windows",
+  "aus.rollstuhl": "Wheelchair access", "aus.rollstuhlap": "Wheelchair desks", "work.gruppe": "Group work",
+  "work.coworking": "Coworking", "aus.bildschirmap": "Screens", "um.normal": "Some noise", "um.laut": "Noisy",
+  "aus.stromwenig": "Few sockets", "food.mensa": "Mensa", "food.cafeteria": "Cafeteria",
+};
+const MAIN_FEATURES = ["Quiet", "Sockets", "24 h", "Windows"];
+Object.assign(state, { places: null, placesAt: 0, placesErr: false, sp: store.get("sp", { uni: "", campus: "", feats: [] }), spMore: false });
+
+async function loadPlaces() {
+  try {
+    const res = await fetch("api/places");
+    if (!res.ok) throw new Error(res.status);
+    state.places = await res.json(); state.placesAt = Date.now(); state.placesErr = false;
+  } catch { state.placesErr = true; }
+  if (state.view === "spaces") render();
+}
+
+// Hours come in whatever shape the source stores: a list of lines, a string, or an object holding
+// the lines (lines / raw / hours / text) next to extras like has24HourAccess and isOpen.
+function hoursLines(h) {
+  if (h == null) return [];
+  if (typeof h === "string") return h.split(/\n|;\s*/).map(x => x.trim()).filter(Boolean);
+  if (Array.isArray(h)) return h.flatMap(x => typeof x === "string" ? hoursLines(x) : []);
+  if (typeof h === "object") for (const k of ["lines", "raw", "hours", "text"]) if (h[k] != null) return hoursLines(h[k]);
+  return [];
+}
+const DAY_EN = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], DAY_DE = ["mo", "di", "mi", "do", "fr", "sa", "so"];
+function dayIdx(tok) {
+  const t = tok.toLowerCase(), en = DAY_EN.indexOf(t.slice(0, 3));
+  return en >= 0 ? en : t.length <= 3 ? DAY_DE.indexOf(t.slice(0, 2)) : -1;
+}
+const hhmm = (h, m) => `${pad(+h)}:${m}`;
+// "Mon - Fri: 07.00 - 19.00", "Sat - Sun: Closed", "Meal times: Mon - Fri: 11.15 - 14.00 and 17.30 - 19.30".
+// `today` is 0 = Monday. Lines that aren't about days ("24-hour access via ETH card") are kept as notes.
+function parseHours(lines, today) {
+  const out = { open: null, closed: false, meal: [], notes: [], days: 0 };
+  for (const line of lines) {
+    const m = line.match(/^(?:(meal times?|essenszeiten?)\s*:\s*)?([a-zäöü]{2,})\.?(?:\s*[-–]\s*([a-zäöü]{2,})\.?)?\s*:\s*(.+)$/i);
+    const a = m ? dayIdx(m[2]) : -1, b = m && m[3] ? dayIdx(m[3]) : a;
+    if (a < 0 || b < 0) { out.notes.push(line); continue; }
+    out.days++; if (m[1]) out.hasMeal = true;
+    if (!(a <= b ? today >= a && today <= b : today >= a || today <= b)) continue;
+    const ranges = [...m[4].matchAll(/(\d{1,2})[.:](\d{2})\s*[-–]\s*(\d{1,2})[.:](\d{2})/g)].map(r => [hhmm(r[1], r[2]), hhmm(r[3], r[4])]);
+    if (m[1]) out.meal.push(...ranges);
+    else if (/closed|geschlossen/i.test(m[4])) out.closed = true;
+    else if (ranges.length) out.open = [...(out.open || []), ...ranges];
+  }
+  return out;
+}
+const is24 = p => !!(p.hours && (p.hours.has24HourAccess || p.hours.access_24h)) || p.features.some(f => /24/.test(f.key)) ||
+  hoursLines(p.hours).some(l => /24[- ]?(h\b|hour|std|stunden)/i.test(l));
+const inRange = (min, [s, e]) => min >= toMin(s) && min < (e === "00:00" ? 1440 : toMin(e));
+const fmtRanges = rs => rs.map(([s, e]) => `${s}–${e}`).join(", ");
+const flagOpen = p => p.hours && typeof p.hours.isOpen === "boolean" ? p.hours.isOpen : null;
+
+// Opening hours today as {line (HTML), open: true / false / null = unknown}, judged at the server's Zurich time.
+function hoursInfo(p, nowIso) {
+  const lines = hoursLines(p.hours), card24 = is24(p);
+  if (!lines.length) return { line: card24 ? "24 h access" : "", open: card24 ? true : flagOpen(p) };
+  const today = (new Date(nowIso.slice(0, 10) + "T00:00Z").getUTCDay() + 6) % 7, min = toMin(hm(nowIso));
+  const h = parseHours(lines, today);
+  // Unparseable, or no line for today: show every line as given.
+  if (!h.days || (!h.open && !h.closed)) return { line: esc(lines.join(" · ")), open: flagOpen(p) };
+  const notes = h.notes.filter(n => !(card24 && /24/.test(n)) && !(h.hasMeal && /meal/i.test(n)));
+  let open = !h.closed && h.open.some(r => inRange(min, r)), label;
+  const meal = h.meal.find(r => inRange(min, r));
+  if (open && meal) { open = false; label = `<span class="shut-now">Meal time until ${meal[1]}</span>`; }
+  else if (open) label = `<span class="open-now">Open until ${h.open.find(r => inRange(min, r))[1]}</span>`;
+  else if (card24) { open = true; label = `<span class="open-now">Open with ETH card</span>`; }
+  else {
+    const next = h.closed ? null : h.open.find(r => toMin(r[0]) > min);
+    label = `<span class="shut-now">${h.closed ? "Closed today" : next ? `Closed, opens ${next[0]}` : "Closed now"}</span>`;
+  }
+  const parts = [label, h.closed ? (card24 ? "closed today" : "") : `today ${fmtRanges(h.open)}`].filter(Boolean);
+  if (h.meal.length) parts.push(`no studying at meal times ${fmtRanges(h.meal)}`);
+  if (card24) parts.push("24 h with ETH card");
+  return { line: parts.concat(notes.map(esc)).join(" · "), open };
+}
+
+function fmtAge(s) {
+  const min = Math.round(s / 60);
+  return min < 90 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} days`;
+}
+// One sample, shown honestly: no sample or no number -> no number; an old sample -> marked as old, grey light.
+// Sources that only report rounded numbers: show their step with "~"; the others are counts, shown exactly.
+const PCT_STEP = { uzh_ub: 5 };
+function occ(s, seats, source) {
+  if (!s) return { cls: "unknown", text: "no live data", rank: 2 };
+  if (s.closed) return { cls: "closed", text: "closed", rank: 3 };
+  const step = PCT_STEP[source] || 1;
+  const free = s.pct == null ? null : Math.max(0, Math.min(100, Math.round((100 - s.pct) / step) * step));
+  // Same thresholds as the server (places.status_for): green below 70 % occupied, yellow below 90 %.
+  const st = s.status && s.status !== "unknown" ? s.status
+    : free == null ? null : free > 30 ? "green" : free > 10 ? "yellow" : "red";
+  if (!st) return { cls: "unknown", text: "no live data", rank: 2 };
+  const n = s.max ?? seats;
+  const word = { green: "plenty of space", yellow: "filling up", red: "almost full" }[st] || esc(st);
+  const text = free == null ? word : `${step > 1 ? "~" : ""}${free}% free` + (n ? ` <small>of ${esc(n)}</small>` : "");
+  if (s.age_s > STALE_S)
+    return { cls: "unknown", text: `<span class="warn">${text}, ${fmtAge(s.age_s)} ago</span>`, rank: 1, free };
+  const tr = { 1: ["↗", "filling up"], "-1": ["↘", "emptying"], 0: ["→", "steady"] }[s.trend];
+  return { cls: st, text: text + (tr ? ` <span class="trend" title="${tr[1]}" aria-label="${tr[1]}">${tr[0]}</span>` : ""), rank: 0, free };
+}
+// A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh samples.
+function aggregate(kids) {
+  const ss = kids.map(k => k.latest).filter(s => s && !s.closed && s.count != null && s.max && s.age_s <= STALE_S);
+  if (!ss.length) return null;
+  const count = ss.reduce((a, s) => a + s.count, 0), max = ss.reduce((a, s) => a + s.max, 0);
+  return { status: null, pct: count / max * 100, count, max, trend: null, closed: false, age_s: Math.max(...ss.map(s => s.age_s)) };
+}
+const campusKey = p => `${p.uni}|${p.campus}`;
+const featKeys = p => { const k = new Set(p.features.map(f => FEATURES[f.key] || f.label || f.key)); if (is24(p)) k.add("24 h"); return k; };
+
+function spaceCard(r, closed) {
+  const { p, o, h } = r;
+  const where = [p.building && p.building !== p.name ? p.building : null, CAMPUS[p.campus] || p.campus, p.uni].filter(Boolean).join(" · ");
+  const tags = [...featKeys(p)].filter(k => MAIN_FEATURES.includes(k) && k !== "24 h");
+  const subs = p.kids.length ? `<div class="subs">${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
+    return `<div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>`; }).join("")}</div>` : "";
+  return `<div class="card scard${closed ? " soon" : ""}">
+    <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}</span></div>
+    <div class="meta">${esc([where, tags.join(", ")].filter(Boolean).join(" · "))}${p.url ? ` · <a class="srclink" href="${esc(p.url)}" target="_blank" rel="noopener">Info ↗</a>` : ""}</div>
+    ${h.line ? `<div class="meta">${h.line}</div>` : ""}${p.note ? `<div class="meta warn">${esc(p.note)}</div>` : ""}${subs}</div>`;
+}
+
+function renderSpaceFilters(all) {
+  const f = state.sp, chip = (attr, val, label, on) => `<button class="chip" data-${attr}="${esc(val)}" aria-pressed="${on}">${esc(label)}</button>`;
+  const unis = [...new Set(all.map(p => p.uni).filter(Boolean))].sort();
+  // Campus codes are per university ("Zentrum" exists at both), so a campus chip is keyed by uni|campus.
+  const campuses = [...new Map(all.filter(p => p.campus && (!f.uni || p.uni === f.uni))
+    .map(p => [campusKey(p), CAMPUS[p.campus] || p.campus])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const dup = l => campuses.filter(c => c[1] === l).length > 1;
+  const keys = new Set(all.flatMap(p => [p, ...p.kids].flatMap(x => [...featKeys(x)])));
+  const main = MAIN_FEATURES.filter(k => keys.has(k)), more = [...keys].filter(k => !MAIN_FEATURES.includes(k)).sort();
+  const shownMore = state.spMore ? more : more.filter(k => f.feats.includes(k));
+  $("#sfilter").innerHTML =
+    `<div class="row">${unis.length > 1 ? unis.map(u => chip("uni", u, u, f.uni === u)).join("") : ""}` +
+    campuses.map(([k, l]) => chip("campus", k, dup(l) ? `${l} (${k.split("|")[0]})` : l, f.campus === k)).join("") + `</div>` +
+    `<div class="row">${[...main, ...shownMore].map(k => chip("feat", k, k, f.feats.includes(k))).join("")}` +
+    (more.length ? `<button class="chip more" data-more="1">${state.spMore ? "Fewer" : "More…"}</button>` : "") + `</div>`;
+}
+
+function renderSpaces() {
+  const d = state.places;
+  if (!d) {
+    $("#summary").textContent = state.placesErr ? "Couldn't load study spaces. Retrying in a minute." : "Loading study spaces…";
+    $("#list").innerHTML = ""; $("#sfilter").innerHTML = ""; $("#footer").innerHTML = ""; return;
+  }
+  const byId = new Map(d.places.map(p => [p.id, { ...p, features: p.features || [], kids: [] }]));
+  for (const p of byId.values()) if (p.parent_id && byId.has(p.parent_id)) byId.get(p.parent_id).kids.push(p);
+  const top = [...byId.values()].filter(p => !p.parent_id || !byId.has(p.parent_id));
+  for (const p of top) p.kids.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  renderSpaceFilters(top);
+  const f = state.sp;
+  const has = (p, k) => featKeys(p).has(k) || p.kids.some(c => featKeys(c).has(k));
+  const shown = top.filter(p => (!f.uni || p.uni === f.uni) && (!f.campus || campusKey(p) === f.campus) && f.feats.every(k => has(p, k)));
+  const rows = shown.map(p => ({ p, o: occ(p.latest || aggregate(p.kids), p.seats, p.source), h: hoursInfo(p, d.now) }));
+  // Open places with live data first (most free on top), then old data, then no data; closed ones last.
+  const cmp = (a, b) => a.o.rank - b.o.rank || (b.o.free ?? -1) - (a.o.free ?? -1) || a.p.name.localeCompare(b.p.name);
+  const isClosed = r => r.h.open === false || r.o.cls === "closed";
+  const open = rows.filter(r => !isClosed(r)).sort(cmp), closed = rows.filter(isClosed).sort(cmp);
+  const live = rows.filter(r => r.o.rank === 0).length;
+  $("#summary").innerHTML = `<b>${open.length}</b> study space${open.length === 1 ? "" : "s"} open now` +
+    ` · ${shown.length} shown · ${live} with live occupancy` + (state.placesErr ? ` · <span class="warn">refresh failed</span>` : "");
+  let html = open.map(r => spaceCard(r, false)).join("");
+  if (!open.length) html += `<div class="empty">${shown.length ? "Nothing open right now." : top.length ? "No study space matches these filters." : "No study spaces yet. They appear once the live sources have run (serve with --live)."}</div>`;
+  if (closed.length) html += `<h2>Closed now</h2>` + closed.map(r => spaceCard(r, true)).join("");
+  $("#list").innerHTML = html;
+  renderHealth(d, null);
+  $("#footer").innerHTML = `Occupancy from the ETH study space sensors, the ICBP library and UZH libraries, refreshed every minute while this page is open. “~% free” is an estimate. A grey ring means there is no current number: none is published, or the last one is older than ${STALE_S / 60} min. Not an official ETH or UZH service.`;
+}
+
+$("#sfilter").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  const f = state.sp, x = b.dataset;
+  if (x.more) state.spMore = !state.spMore;
+  else if (x.uni) { f.uni = f.uni === x.uni ? "" : x.uni; f.campus = ""; }
+  else if (x.campus) f.campus = f.campus === x.campus ? "" : x.campus;
+  else if (x.feat) f.feats = f.feats.includes(x.feat) ? f.feats.filter(k => k !== x.feat) : [...f.feats, x.feat];
+  store.set("sp", f); render();
+});
+
 // --- controls ---
 function press(group, attr, val) {
   for (const b of document.querySelectorAll(`#${group} .chip`)) b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)));
 }
 $("#view").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
-  state.view = b.dataset.view; store.set("view", state.view); render();
+  state.view = b.dataset.view; store.set("view", state.view);
+  if (state.view === "spaces") { closePanel(); loadPlaces(); }
+  render();
 });
 $("#when").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if (!b) return;
@@ -463,7 +683,7 @@ $("#dur").addEventListener("click", e => {
   state.min = Number(b.dataset.min); store.set("min", state.min); press("dur", "min", state.min); render();
 });
 $("#list").addEventListener("click", e => {
-  const c = e.target.closest(".card"); if (!c) return;
+  const c = e.target.closest(".card"); if (!c || c.classList.contains("scard")) return;
   if (c.dataset.building) {        // building overview -> that building's rooms
     state.building = c.dataset.building; store.set("building", state.building);
     state.view = "rooms"; store.set("view", "rooms");
@@ -473,14 +693,22 @@ $("#list").addEventListener("click", e => {
 
 const params = new URLSearchParams(location.search);
 const urlAt = params.get("at");                     // shareable: /?at=2026-11-12T14:00
-if (["rooms", "buildings"].includes(params.get("view"))) state.view = params.get("view");   // /?view=buildings
+if (["rooms", "buildings", "spaces"].includes(params.get("view"))) state.view = params.get("view");   // /?view=buildings
 if (urlAt) { state.when = urlAt; $("#at").value = urlAt.slice(0, 16); press("when", "when", "-"); }
 press("site", "site", state.site); press("dur", "min", state.min);
 const INITIAL = /*INITIAL_DATA*/null;
 const startRoom = roomFromHash();
 function start() { if (startRoom && state.data.rooms.some(r => r.id === startRoom)) openPanel(startRoom, false); }
+const INITIAL_PLACES = /*INITIAL_PLACES*/null;    // only inlined for /?view=spaces
+if (INITIAL_PLACES) { state.places = INITIAL_PLACES; state.placesAt = Date.now(); }
 if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); start(); } else load().then(start);
+if (state.view === "spaces" && !INITIAL_PLACES) loadPlaces();
 setInterval(() => { if (state.when === "now") load(); }, 5 * 60 * 1000);
+// Occupancy changes by the minute: refresh study spaces every 60 s, but only while they're on screen.
+setInterval(() => { if (state.view === "spaces" && document.visibilityState === "visible") loadPlaces(); }, PLACES_EVERY);
+document.addEventListener("visibilitychange", () => {
+  if (state.view === "spaces" && document.visibilityState === "visible" && Date.now() - state.placesAt > PLACES_EVERY) loadPlaces();
+});
 </script>
 </body>
 </html>
