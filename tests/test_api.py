@@ -88,6 +88,19 @@ class RateLimit(unittest.TestCase):
         f.client(delay=0).date_range()
         self.assertEqual(f.sleeps, [2, 4])
 
+    def test_html_error_page_with_200_is_retried_then_explained(self):
+        page = b"<!DOCTYPE html><html><head><title>500&nbsp;Internal server error</title></head></html>"
+        f = Fake(*(FakeResp(page, content_type="text/html;charset=utf-8") for _ in range(3)))
+        with self.assertRaises(api.BadResponse) as cm:
+            f.client(retries=2).rooms()
+        self.assertEqual(f.calls, 3)
+        self.assertIn("'500 Internal server error'", str(cm.exception))
+        self.assertIn("text/html", str(cm.exception))
+
+    def test_html_error_page_then_json_recovers(self):
+        f = Fake(FakeResp(b"<html><title>500</title></html>"), FakeResp(b"[]"))
+        self.assertEqual(f.client().rooms(), [])
+
     def test_gives_up_after_retries(self):
         f = Fake(*(http_error(429, Retry_After=1) for _ in range(3)))
         with self.assertRaises(urllib.error.HTTPError):

@@ -6,6 +6,7 @@ Base: https://ethz.ch/bin/ethz/roominfo?path=<path>&<params>
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -49,6 +50,23 @@ def retry_after(value: str | None, now: datetime | None = None,
     return min(max(secs, 0.0), cap)
 
 
+class BadResponse(ValueError):
+    """The API answered 200 but not with JSON (e.g. ETH's HTML error page). Retried like a 5xx."""
+
+
+def parse_json(body: bytes, content_type: str | None = None) -> object:
+    """JSON body, or BadResponse with a readable reason. When ETH's backend fails it sometimes
+    answers HTTP 200 with its HTML "500 Internal server error" page (seen 2026-11-20)."""
+    try:
+        return json.loads(body)
+    except ValueError:
+        text = body.decode("utf-8", "replace")
+        m = re.search(r"<title>(.*?)</title>", text, re.S | re.I)
+        what = re.sub(r"\s+|&nbsp;", " ", m[1]).strip() if m else text[:80].strip() or "an empty body"
+        raise BadResponse(f"not JSON ({content_type or 'no content type'}): {what!r}; "
+                          "ETH's room API is probably down, try again later") from None
+
+
 class ApiClient:
     def __init__(self, delay: float = 0.3, timeout: float = 20.0, retries: int = 2,
                  opener: Callable = urllib.request.urlopen,
@@ -77,7 +95,7 @@ class ApiClient:
             try:
                 with self._open(req, timeout=self.timeout) as resp:
                     self._note_remaining(resp.headers.get("x-ratelimit-remaining"))
-                    return json.load(resp)
+                    return parse_json(resp.read(), resp.headers.get("Content-Type"))
             except urllib.error.HTTPError as e:
                 # 4xx other than 429 won't fix itself by retrying (e.g. 404)
                 if attempt == self.retries or (400 <= e.code < 500 and e.code != 429):

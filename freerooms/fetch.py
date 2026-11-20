@@ -232,7 +232,10 @@ def run_all(conn: sqlite3.Connection, unis: tuple[str, ...] = UNIS, eth: dict | 
     for uni in unis:
         try:
             out[uni] = run_uni(conn, uni, eth, uzh)
+        except (OSError, ValueError) as e:   # network trouble, HTTP errors, bad answers: no traceback needed
+            log.error("%s room fetch failed, keeping the previous data: %s: %s", uni, type(e).__name__, e)
+            out[uni] = None
         except Exception:
-            log.exception("%s room fetch failed", uni)
+            log.exception("%s room fetch failed, keeping the previous data", uni)
             out[uni] = None
     return out
