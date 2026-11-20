@@ -19,6 +19,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* else .row's display: flex wins over the hidden attribute */
   body { margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 16px 8px;
@@ -110,7 +111,6 @@
 
   /* Study spaces */
   @media (max-width: 420px) { h1 span { display: none; } }
-  .card.scard { cursor: default; }
   .dot { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 7px;
     background: var(--closed); vertical-align: baseline; }
   .dot.green { background: var(--free); } .dot.yellow { background: var(--warn); } .dot.red { background: var(--busy); }
@@ -124,6 +124,19 @@
   .sub .status { font-size: 13px; }
   .srclink { color: var(--accent); font-size: 13px; text-decoration: none; white-space: nowrap; }
   .chip.more { background: none; color: var(--accent); }
+  /* Study place panel */
+  .bigocc { font-size: 22px; font-weight: 650; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .bigocc .dot { width: 16px; height: 16px; }
+  .bigocc small { font-size: 15px; }
+  .curve { display: block; width: 100%; height: auto; margin-top: 4px; }
+  .curve .area { fill: var(--accent); opacity: .18; } .curve .ln { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  .curve .pt { fill: var(--accent); } .curve .off { fill: var(--closed); opacity: .25; }
+  .curve .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; } .curve .base { stroke: var(--line); }
+  .curve .now { stroke: var(--text); stroke-width: 1.5; } .curve text { fill: var(--muted); font-size: 10px; }
+  .psub { padding: 6px 0; border-top: 1px solid var(--line); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tags span { background: var(--chip); padding: 4px 10px; border-radius: 999px; font-size: 13px; }
+  .kv dd.today, .kv dt.today { font-weight: 650; color: var(--text); }
 </style>
 </head>
 <body>
@@ -183,7 +196,8 @@ const state = {
   min: store.get("min", 45),
   data: null,
   room: null,                                    // id of the room shown in the panel
-  pushed: false,                                 // did we add a history entry for the panel?
+  place: null,                                   // id of the study place shown in the panel (never both)
+  pushed: false,                                // did we add a history entry for the panel?
 };
 const details = new Map();                       // room id -> detail JSON (or Promise)
 
@@ -429,23 +443,30 @@ function renderPanel() {
   document.querySelector(`.card[data-id="${CSS.escape(r.id)}"]`)?.classList.add("sel");
 }
 
-function openPanel(id, push = true) {
-  const wasOpen = !!state.room;
-  state.room = id;
+// The same panel shows a room (#room=…) or a study place (#place=…); `kind` says which.
+function openPanel(id, push = true, kind = "room") {
+  const wasOpen = !!(state.room || state.place);
+  state.room = kind === "room" ? id : null;
+  state.place = kind === "place" ? id : null;
   if (push) {
-    const url = "#room=" + encodeURIComponent(id);
+    const url = `#${kind}=` + encodeURIComponent(id);
     // One history entry per panel session, so Back closes it (on phones that's the natural gesture).
-    if (state.pushed) history.replaceState({ room: id }, "", url); else { history.pushState({ room: id }, "", url); state.pushed = true; }
+    if (state.pushed) history.replaceState({ [kind]: id }, "", url); else { history.pushState({ [kind]: id }, "", url); state.pushed = true; }
   }
+  if (kind === "place" && state.view !== "spaces") {   // e.g. Back to a #place= entry from another view
+    state.view = "spaces"; render(); if (!state.places) loadPlaces();
+    if (!state.place) return;      // render() already closed it: unknown id
+  }
+  $("#panel").setAttribute("aria-label", kind === "room" ? "Room details" : "Study place details");
   document.body.classList.add("panel-open");
-  renderPanel();
+  (kind === "room" ? renderPanel : renderPlacePanel)();
   if (!wasOpen) $("#panel").scrollTop = 0;
   $("#panel").focus({ preventScroll: true });
 }
 function closePanel(fromHistory = false) {
-  if (!state.room) return;
-  const id = state.room;
-  state.room = null;
+  const id = state.room || state.place;
+  if (!id) return;
+  state.room = state.place = null;
   document.body.classList.remove("panel-open");
   for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
   if (!fromHistory) {
@@ -454,14 +475,14 @@ function closePanel(fromHistory = false) {
   state.pushed = false;
   document.querySelector(`.card[data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
 }
-function roomFromHash() { const m = location.hash.match(/^#room=(.+)$/); return m ? decodeURIComponent(m[1]) : null; }
+function panelFromHash() { const m = location.hash.match(/^#(room|place)=(.+)$/); return m ? { kind: m[1], id: decodeURIComponent(m[2]) } : null; }
 window.addEventListener("popstate", () => {
-  const id = roomFromHash();
-  if (id) { state.pushed = true; openPanel(id, false); } else closePanel(true);
+  const h = panelFromHash();
+  if (h) { state.pushed = true; openPanel(h.id, false, h.kind); } else closePanel(true);
 });
 $("#panel").addEventListener("click", e => { if (e.target.closest("#close")) closePanel(); });
 $("#shade").addEventListener("click", () => closePanel());
-document.addEventListener("keydown", e => { if (e.key === "Escape" && state.room) closePanel(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && (state.room || state.place)) closePanel(); });
 
 // --- study spaces ---
 const PLACES_EVERY = 60 * 1000;
@@ -590,7 +611,7 @@ function spaceCard(r, closed) {
   const tags = [...featKeys(p)].filter(k => MAIN_FEATURES.includes(k) && k !== "24 h");
   const subs = p.kids.length ? `<div class="subs">${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
     return `<div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>`; }).join("")}</div>` : "";
-  return `<div class="card scard${closed ? " soon" : ""}">
+  return `<div class="card scard${closed ? " soon" : ""}${state.place === p.id ? " sel" : ""}" data-id="${esc(p.id)}" role="button" tabindex="0">
     <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}</span></div>
     <div class="meta">${esc([where, tags.join(", ")].filter(Boolean).join(" · "))}${p.url ? ` · <a class="srclink" href="${esc(p.url)}" target="_blank" rel="noopener">Info ↗</a>` : ""}</div>
     ${h.line ? `<div class="meta">${h.line}</div>` : ""}${p.note ? `<div class="meta warn">${esc(p.note)}</div>` : ""}${subs}</div>`;
@@ -619,10 +640,7 @@ function renderSpaces() {
     $("#summary").textContent = state.placesErr ? "Couldn't load study spaces. Retrying in a minute." : "Loading study spaces…";
     $("#list").innerHTML = ""; $("#sfilter").innerHTML = ""; $("#footer").innerHTML = ""; return;
   }
-  const byId = new Map(d.places.map(p => [p.id, { ...p, features: p.features || [], kids: [] }]));
-  for (const p of byId.values()) if (p.parent_id && byId.has(p.parent_id)) byId.get(p.parent_id).kids.push(p);
-  const top = [...byId.values()].filter(p => !p.parent_id || !byId.has(p.parent_id));
-  for (const p of top) p.kids.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  const { top } = placeTree(d);
   renderSpaceFilters(top);
   const f = state.sp;
   const has = (p, k) => featKeys(p).has(k) || p.kids.some(c => featKeys(c).has(k));
@@ -641,6 +659,165 @@ function renderSpaces() {
   $("#list").innerHTML = html;
   renderHealth(d, null);
   $("#footer").innerHTML = `Occupancy from the ETH study space sensors, the ICBP library and UZH libraries, refreshed every minute while this page is open. “~% free” is an estimate. A grey ring means there is no current number: none is published, or the last one is older than ${STALE_S / 60} min. Not an official ETH or UZH service.`;
+  if (state.place) renderPlacePanel();
+}
+
+// Places by id, with each library's floors in `kids`; `top` are the ones listed as cards.
+function placeTree(d) {
+  const byId = new Map(d.places.map(p => [p.id, { ...p, features: p.features || [], kids: [] }]));
+  for (const p of byId.values()) if (p.parent_id && byId.has(p.parent_id)) byId.get(p.parent_id).kids.push(p);
+  const top = [...byId.values()].filter(p => !p.parent_id || !byId.has(p.parent_id));
+  for (const p of top) p.kids.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  return { byId, top };
+}
+
+// --- study place panel ---
+const CURVE_START = 6, CURVE_END = 24;   // hours shown in the day curve
+const placeDays = new Map();             // place id -> { at, data } from api/place (or { at, error })
+// The source of a place's samples isn't always the place's own source: ETH study spaces get theirs
+// from eth_availability, and the ICBP library (an ETH study space) from icbp.
+const sampleSource = p => p.kids.some(k => k.source === "icbp") ? "icbp" : p.source === "eth_studyspaces" ? "eth_availability" : p.source;
+const SAMPLE_SOURCES = {
+  eth_availability: "ETH study space sensors", icbp: "ICBP Infozentrum (infoz01.ethz.ch)", uzh_ub: "UZH library occupancy widgets",
+};
+
+function loadPlaceDay(id) {
+  const c = placeDays.get(id);
+  if (c && (c.loading || Date.now() - c.at < PLACES_EVERY)) return;
+  placeDays.set(id, { ...c, loading: true });
+  fetch("api/place?" + q({ id }))
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => ({ at: Date.now(), data }), () => ({ at: Date.now(), data: c?.data, error: true }))
+    .then(v => { placeDays.set(id, v); if (state.place === id) fillCurves(id); });
+}
+
+// One day of samples as an inline SVG area chart of the share occupied, 06:00–24:00 local time.
+// A numeric sample counts until the next sample, but at most STALE_S; a no-data sample leaves a gap
+// until the next one (runs of them are stored once); a closed one is shaded until the next one.
+function curveSVG(samples, day, h = 64) {
+  const W = 360, top = 4, x = m => Math.max(0, Math.min(W, (m - CURVE_START * 60) / ((CURVE_END - CURVE_START) * 60) * W));
+  const y = pct => top + (h - top) * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  const today = day.date === day.now.slice(0, 10), nowMin = today ? toMin(hm(day.now)) : 1440;
+  const ss = samples.map(s => ({ ...s, m: toMin(hm(s.local)) }));
+  let svg = `<line class="grid" x1="0" x2="${W}" y1="${y(70)}" y2="${y(70)}"/><line class="grid" x1="0" x2="${W}" y1="${y(90)}" y2="${y(90)}"/>`;
+  const runs = []; let run = null;
+  ss.forEach((s, i) => {
+    const next = ss[i + 1], end = Math.min(next ? next.m : nowMin, s.m + STALE_S / 60);
+    if (s.closed) {
+      const e = next ? next.m : nowMin;
+      if (e > s.m) svg += `<rect class="off" x="${x(s.m)}" y="${top}" width="${Math.max(1, x(e) - x(s.m))}" height="${h - top}"/>`;
+      run = null; return;
+    }
+    if (s.pct == null) { run = null; return; }
+    if (!run) runs.push(run = []);
+    run.push([s.m, s.pct]);
+    if (!next || end < next.m) run = null;      // the next sample is too far away (or there is none): gap
+  });
+  for (const r of runs) {
+    if (r.length === 1) { svg += `<circle class="pt" cx="${x(r[0][0])}" cy="${y(r[0][1])}" r="2"/>`; continue; }
+    const pts = r.map(([m, p]) => `${x(m).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+    svg += `<polygon class="area" points="${x(r[0][0]).toFixed(1)},${h} ${pts} ${x(r.at(-1)[0]).toFixed(1)},${h}"/><polyline class="ln" points="${pts}"/>`;
+  }
+  svg += `<line class="base" x1="0" x2="${W}" y1="${h}" y2="${h}"/>`;
+  if (today) svg += `<line class="now" x1="${x(nowMin)}" x2="${x(nowMin)}" y1="0" y2="${h}"/>`;
+  return `<svg class="curve" viewBox="0 0 ${W} ${h + 1}" role="img" aria-label="Share of seats taken over the day">${svg}</svg>`;
+}
+const curveTicks = () => `<div class="ticks">${[6, 9, 12, 15, 18, 21, 24].map(t => `<span>${t}</span>`).join("")}</div>`;
+
+function curveBlock(samples, day, small) {
+  if (!samples.length) return `<p class="meta">No samples ${day.date === day.now.slice(0, 10) ? "today" : "that day"}.</p>`;
+  const numeric = samples.some(s => s.pct != null && !s.closed);
+  return curveSVG(samples, day, small ? 28 : 64) + (small ? "" : curveTicks()) +
+    (numeric ? "" : `<p class="meta">No live numbers ${day.date === day.now.slice(0, 10) ? "today" : "that day"}${samples.some(s => s.closed) ? " (closed)" : ""}.</p>`);
+}
+
+function fillCurves(id) {
+  const c = placeDays.get(id), el = $("#pcurve");
+  if (!el) return;
+  if (!c?.data) { el.innerHTML = `<p class="meta">${c?.error ? "Couldn't load today's samples." : "Loading today's samples…"}</p>`; return; }
+  const d = c.data, day = { date: d.date, now: d.now };
+  el.innerHTML = curveBlock(d.place.samples, day, false) +
+    `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.</div>`;
+  for (const k of d.kids) {
+    const kel = document.querySelector(`.kcurve[data-id="${CSS.escape(k.id)}"]`);
+    if (kel) kel.innerHTML = curveBlock(k.samples, day, true);
+  }
+}
+
+const DAY_LABEL = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+// The whole week from ETH's parsed hours (week/meals), else the lines as published.
+function weekHTML(p, nowIso) {
+  const h = p.hours, lines = hoursLines(h);
+  const today = DAY_EN[(new Date(nowIso.slice(0, 10) + "T00:00Z").getUTCDay() + 6) % 7];
+  let html = "";
+  if (h && h.week && Object.keys(h.week).length) {
+    html = `<dl class="kv">${DAY_EN.map(d => {
+      const open = h.week[d], meals = h.meals?.[d] || [];
+      const v = open == null ? "not stated" : open.length ? fmtRanges(open) : "closed";
+      const cls = d === today ? ` class="today"` : "";
+      return `<dt${cls}>${DAY_LABEL[d]}</dt><dd${cls}>${esc(v)}${meals.length ? `<br><span class="meta">meal times ${esc(fmtRanges(meals))}, no studying</span>` : ""}</dd>`;
+    }).join("")}</dl>`;
+    if (lines.length) html += `<details><summary>As published</summary>${lines.map(l => `<div>${esc(l)}</div>`).join("")}</details>`;
+  } else if (lines.length) html = lines.map(l => `<div>${esc(l)}</div>`).join("");
+  else html = `<p class="meta">No opening hours listed.</p>`;
+  if (is24(p)) html += `<p>24-hour access with an ETH card.</p>`;
+  return html;
+}
+
+function renderPlacePanel() {
+  const d = state.places;
+  if (!d) { $("#panel").innerHTML = `<div class="grab"></div><p class="meta">Loading…</p>`; return; }
+  const { byId } = placeTree(d), p = byId.get(state.place);
+  if (!p) { closePanel(); return; }
+  const parent = p.parent_id && byId.get(p.parent_id);
+  const o = occ(p.latest || aggregate(p.kids), p.seats, p.source), s = p.latest;
+  const where = [p.building && p.building !== p.name ? p.building : null, CAMPUS[p.campus] || p.campus, p.uni,
+    p.seats ? `${p.seats} seats` : null].filter(Boolean).join(" · ");
+  const measured = s ? [s.count != null && !s.closed ? `${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
+      `measured ${fmtAge(s.age_s)} ago`, SAMPLE_SOURCES[sampleSource(p)] || SOURCE_NAMES[sampleSource(p)] || sampleSource(p)].filter(Boolean).join(" · ")
+    : p.kids.length && o.rank === 0 ? "Sum of the floors below" : "";
+  const notice = p.hours?.notice && (p.hours.notice.en || p.hours.notice.de);
+  // Keep "As published" open across the minutely refresh of the same place.
+  const keepOpen = $("#panel").dataset.place === p.id && !!$("#panel details")?.open;
+  const hi = hoursInfo(p, d.now);
+  const feats = p.features.map(f => f.label || FEATURES[f.key] || f.key);
+  // ETH location pages carry building/floor/room; the same triple opens ETH's room details.
+  let loc = null;
+  try { const u = new URL(p.url); if (/ethz\.ch$/.test(u.hostname) && u.searchParams.get("building")) loc = Object.fromEntries(["building", "floor", "room"].map(k => [k, u.searchParams.get(k) || ""])); } catch {}
+  const links = [
+    p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${loc ? "Location" : "Official page"} ↗</a>` : "",
+    loc ? `<a href="${ETH}/staffnet/de/service/raeume-gebaeude/rauminfo/raumdetails.html?${esc(q(loc))}" target="_blank" rel="noopener">Room details ↗</a>` : "",
+    // Seminar rooms with a people counter are in the Rooms view too (their id there is the name).
+    p.source === "eth_availability" ? `<a href="?view=rooms#room=${esc(encodeURIComponent(p.name))}">Bookings in Rooms view</a>` : "",
+  ].join("");
+  const bld = p.uni === "ETH" && (loc?.building || p.building);
+  const svg = bld && `${ETH}/content/dam/ethz/common/images/arealplaene/gebaeudeorientierung/${encodeURIComponent(bld)}.svg`;
+  $("#panel").innerHTML = `<div class="grab"></div>
+    <div class="ph"><div><div class="name">${esc(p.name)}</div>
+      <div class="meta">${esc(where)}</div>${parent ? `<div class="meta">Part of ${esc(parent.name)}</div>` : ""}</div>
+      <button class="x" id="close" aria-label="Close">✕</button></div>
+    ${p.note ? `<div class="meta warn">${esc(p.note)}</div>` : ""}
+    <div class="bigocc s-${o.cls}"><span class="dot ${o.cls}" aria-hidden="true"></span>${o.text}</div>
+    ${measured ? `<div class="meta">${esc(measured)}</div>` : ""}
+    ${hi.line ? `<div class="meta">${hi.line}</div>` : ""}
+    ${notice ? `<div class="stale">${esc(notice)}</div>` : ""}
+    <h3>Today</h3>
+    <div id="pcurve"></div>
+    ${p.kids.length ? `<h3>Floors</h3>${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
+      return `<div class="psub"><div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>
+        <div class="kcurve" data-id="${esc(k.id)}"></div></div>`; }).join("")}` : ""}
+    <h3>Opening hours</h3>
+    ${weekHTML(p, d.now)}
+    ${feats.length ? `<h3>Features</h3><div class="tags">${feats.map(f => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
+    ${links ? `<div class="links">${links}</div>` : ""}
+    ${svg ? `<div><h3>Where is ${esc(bld)}</h3>
+      <a class="plan" href="${svg}" target="_blank" rel="noopener"><img src="${svg}" alt="Campus map with building ${esc(bld)}" loading="lazy" onerror="this.closest('div').hidden=true"></a></div>` : ""}`;
+  $("#panel").dataset.place = p.id;
+  if (keepOpen && $("#panel details")) $("#panel details").open = true;
+  fillCurves(p.id);
+  loadPlaceDay(p.id);
+  for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
+  document.querySelector(`.card[data-id="${CSS.escape(p.id)}"]`)?.classList.add("sel");
 }
 
 $("#sfilter").addEventListener("click", e => {
@@ -660,7 +837,8 @@ function press(group, attr, val) {
 $("#view").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   state.view = b.dataset.view; store.set("view", state.view);
-  if (state.view === "spaces") { closePanel(); loadPlaces(); }
+  if ((state.view === "spaces") !== !!state.place) closePanel();   // a room panel doesn't fit the Study view, nor vice versa
+  if (state.view === "spaces") loadPlaces();
   render();
 });
 $("#when").addEventListener("click", e => {
@@ -683,12 +861,17 @@ $("#dur").addEventListener("click", e => {
   state.min = Number(b.dataset.min); store.set("min", state.min); press("dur", "min", state.min); render();
 });
 $("#list").addEventListener("click", e => {
-  const c = e.target.closest(".card"); if (!c || c.classList.contains("scard")) return;
-  if (c.dataset.building) {        // building overview -> that building's rooms
+  const c = e.target.closest(".card"); if (!c) return;
+  if (c.classList.contains("scard")) { if (!e.target.closest("a")) openPanel(c.dataset.id, true, "place"); }
+  else if (c.dataset.building) {        // building overview -> that building's rooms
     state.building = c.dataset.building; store.set("building", state.building);
     state.view = "rooms"; store.set("view", "rooms");
     $("#building").value = state.building; render(); scrollTo(0, 0);
   } else openPanel(c.dataset.id);
+});
+$("#list").addEventListener("keydown", e => {   // study cards are divs (they contain a link), so act like a button
+  const c = e.target.closest?.(".scard");
+  if (c && e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPanel(c.dataset.id, true, "place"); }
 });
 
 const params = new URLSearchParams(location.search);
@@ -697,10 +880,14 @@ if (["rooms", "buildings", "spaces"].includes(params.get("view"))) state.view = 
 if (urlAt) { state.when = urlAt; $("#at").value = urlAt.slice(0, 16); press("when", "when", "-"); }
 press("site", "site", state.site); press("dur", "min", state.min);
 const INITIAL = /*INITIAL_DATA*/null;
-const startRoom = roomFromHash();
-function start() { if (startRoom && state.data.rooms.some(r => r.id === startRoom)) openPanel(startRoom, false); }
+const startPanel = panelFromHash();
+if (startPanel?.kind === "place") state.view = "spaces";   // /?view=spaces#place=eth_studyspaces:HGH30.1
+function start() {
+  if (startPanel?.kind === "room" && state.data.rooms.some(r => r.id === startPanel.id)) openPanel(startPanel.id, false);
+}
 const INITIAL_PLACES = /*INITIAL_PLACES*/null;    // only inlined for /?view=spaces
 if (INITIAL_PLACES) { state.places = INITIAL_PLACES; state.placesAt = Date.now(); }
+if (startPanel?.kind === "place") openPanel(startPanel.id, false, "place");   // closes itself if the id is unknown
 if (INITIAL) { state.data = INITIAL; fillBuildings(); render(); start(); } else load().then(start);
 if (state.view === "spaces" && !INITIAL_PLACES) loadPlaces();
 setInterval(() => { if (state.when === "now") load(); }, 5 * 60 * 1000);

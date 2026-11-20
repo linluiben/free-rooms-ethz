@@ -130,3 +130,18 @@ def latest(conn: sqlite3.Connection, now: datetime | None = None) -> list[dict]:
             "lat": r["lat"], "lon": r["lon"], "source": r["source"], "url": r["url"], "note": r["note"], "latest": sample,
         })
     return out
+
+
+def samples_between(conn: sqlite3.Connection, place_ids: list[str], start: str, end: str) -> dict[str, list[dict]]:
+    """Samples with start <= ts < end (UTC ISO) per place id, oldest first. A run of no-data
+    samples is stored once (see add_samples), so such a row means "unknown until the next one"."""
+    out: dict[str, list[dict]] = {pid: [] for pid in place_ids}
+    rows = conn.execute(
+        f"""SELECT place_id, ts, status, pct, count, max, trend, closed FROM occupancy
+            WHERE place_id IN ({",".join("?" * len(place_ids))}) AND ts >= ? AND ts < ? ORDER BY ts""",
+        (*place_ids, start, end))
+    for r in rows:
+        s = {k: r[k] for k in ("ts", "pct", "count", "max", "status", "trend")}
+        s["closed"] = bool(r["closed"])
+        out[r["place_id"]].append(s)
+    return out

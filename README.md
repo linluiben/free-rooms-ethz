@@ -22,7 +22,7 @@ python3 -m freerooms serve            # UI on http://127.0.0.1:8000
 python3 -m freerooms serve --live     # ... plus live study-space occupancy every 5 min
 ```
 
-`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`. `/api/places` lists the study places with their latest occupancy sample.
+`/?at=2026-11-12T14:00` opens the UI at a specific time, `/?view=buildings` opens the building overview, and `#room=HG%20E%201.2` opens a room's details. The JSON is available at `/api/rooms?at=…` (rooms plus opening hours per building) and `/api/roomdetail?id=…`. `/api/places` lists the study places with their latest occupancy sample. Tapping a study place opens its details (`/?view=spaces#place=eth_studyspaces:HGH30.1`): today's occupancy curve, floors, the week's opening hours, notices, all features and links; `/api/place?id=…&date=YYYY-MM-DD` returns that place and its floors with the day's samples (Zurich date, default today).
 
 `/api/health` reports data freshness per source (currently `eth_rooms`): last attempt, last success, last error, row counts, age and whether it is stale. `status` is `ok` (HTTP 200) or `stale` (HTTP 503, so a plain uptime monitor can alert on it). The UI shows "updated X min ago" and a banner when data is stale. `/healthz` stays a plain liveness check.
 
