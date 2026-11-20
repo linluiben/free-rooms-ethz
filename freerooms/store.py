@@ -124,10 +124,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE places ADD COLUMN note TEXT")   # added after Phase 1's first draft
         conn.commit()
     # DBs from before source_health: take the room fetch time from meta.
-    if conn.execute("INSERT OR IGNORE INTO source_health(source, last_attempt, last_success, max_age_s) "
-                    "SELECT 'eth_rooms', value, value, ? FROM meta WHERE key='last_fetch'",
-                    (DEFAULT_MAX_AGE,)).rowcount:
-        conn.commit()
+    conn.execute("INSERT OR IGNORE INTO source_health(source, last_attempt, last_success, max_age_s) "
+                 "SELECT 'eth_rooms', value, value, ? FROM meta WHERE key='last_fetch'", (DEFAULT_MAX_AGE,))
+    # Always commit: even an insert that inserts nothing opens a write transaction, and a connection
+    # left holding it (e.g. while /api/roomdetail waits for ETH) blocks every other connect() for up to 30 s.
+    conn.commit()
 
 
 def window_key(uni: str) -> str:
