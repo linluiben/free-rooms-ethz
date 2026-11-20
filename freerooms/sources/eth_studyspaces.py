@@ -51,6 +51,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
+from .. import campus
 from ..live import Source
 from ..places import Place, Sample, utc_iso
 
@@ -58,7 +59,7 @@ BASE = "https://ethz.ch"
 STUDYSPACES_URL = BASE + "/bin/ethz/studyspaces.json"
 AVAILABILITY_URL = BASE + "/bin/ethz/studyspaces/availability.json"
 PREFIX = "eth_studyspaces:"
-CAMPUS = {"ZZ": "Zürich Zentrum", "ZH": "Zürich Hönggerberg", "AC": "Basel"}
+CAMPUS = {"ZZ": campus.ZENTRUM, "ZH": campus.HOENGG, "AC": campus.BASEL}
 STATUSES = {"green", "yellow", "red", "unknown"}
 TRENDS = {"filling": 1, "steady": 0, "emptying": -1}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -148,7 +149,7 @@ def parse_places(raw: dict, now: datetime | None = None) -> list[Place]:
         out.append(Place(
             id=PREFIX + rid, uni="ETH", source="eth_studyspaces",
             name=_name(a.get("title") or rid, (a.get("description") or "").strip()),
-            campus=CAMPUS.get(a.get("campus"), a.get("campus")),
+            campus=CAMPUS.get(a.get("campus")) or campus.canonical(a.get("campus")),
             building=a.get("building"),
             seats=seats if isinstance(seats, int) and seats > 0 else None,
             hours={
