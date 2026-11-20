@@ -112,7 +112,7 @@ All times are naive Europe/Zurich local time, as the API returns them.
    Validation is as strict as for ETH: a room with a malformed block is *unknown*, never free, and a room without any block in the whole window is unknown too (every room normally has nightly `O` closures; the three KUM rooms have none, so their opening hours show as unknown). If a day fails to load, the data stops before that day instead of having a hole.
 4. **Times:** the API takes the query window in UTC, but its answers are Zurich **wall-clock** time with a misleading `Z` (bookings at `10:15Z` say "10:15 - 12:00" in their comment and stay at `10:15Z` across the switch to summer time). We store them as they are. Multi-day blocks are cut at midnight.
 
-Caveats: undocumented and may change any time; the session is anonymous but still a session; rooms whose `F`/`S` blocks are wrong would show wrong states. Bookings have not yet been checked against the [UZH course catalogue](https://courses.uzh.ch).
+Caveats: undocumented and may change any time; the session is anonymous but still a session; rooms whose `F`/`S` blocks are wrong would show wrong states. Checked against the [UZH course catalogue](https://courses.uzh.ch) for one teaching week: 1,916 of 1,917 course meetings in our rooms are booked in 3V at exactly the same time, see [docs/uzh-validation.md](docs/uzh-validation.md).
 
 ### Live occupancy (study spaces and libraries)
 
