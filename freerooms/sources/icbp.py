@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from .. import campus
 from ..live import Source
 from ..places import Place, Sample, status_for, utc_iso
 
@@ -68,7 +69,7 @@ def parse_places(raw) -> list[Place]:
     """The floors only; the library itself comes from eth_studyspaces."""
     raw = _check(raw)
     return [Place(id=f"{KEY}:{f}", uni="ETH", name=f"{NAME} – floor {f}", source=KEY,
-                          parent_id=LIBRARY_ID, campus="Zürich Hönggerberg", building="HCI",
+                          parent_id=LIBRARY_ID, campus=campus.HOENGG, building="HCI",
                           seats=int(raw[f + "_max"]), url=SITE) for f in floors(raw)]
 
 

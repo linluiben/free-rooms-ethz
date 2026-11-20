@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .campus import canonical
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rooms (
     id          TEXT PRIMARY KEY,   -- query id, e.g. 'HG F 26.3'
@@ -18,7 +20,9 @@ CREATE TABLE IF NOT EXISTS rooms (
     typecode    TEXT,
     seats       INTEGER,
     workplaces  INTEGER,            -- computer rooms have workplaces instead of seats
-    site        TEXT,               -- locationName, e.g. 'Zürich Zentrum'
+    site        TEXT,               -- the source's own site name, e.g. 'Zürich Zentrum'
+    uni         TEXT NOT NULL DEFAULT 'ETH',  -- 'ETH' | 'UZH'
+    campus      TEXT,               -- shared campus name (campus.canonical), e.g. 'Zentrum'
     fetched_at  TEXT,               -- last successful allocation fetch (UTC ISO)
     n_entries   INTEGER             -- raw entries in last fetch (0 => unknown: empty or malformed)
 );
@@ -99,14 +103,37 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "workplaces" not in cols:  # added after the first release
         conn.execute("ALTER TABLE rooms ADD COLUMN workplaces INTEGER")
         conn.commit()
+    if "uni" not in cols:  # Phase 2: rooms of more than one university
+        conn.execute("ALTER TABLE rooms ADD COLUMN uni TEXT NOT NULL DEFAULT 'ETH'")
+        conn.execute("ALTER TABLE rooms ADD COLUMN campus TEXT")
+        conn.commit()
+    # One campus spelling everywhere (older rows say 'Zürich Zentrum' etc.).
+    for table, src in (("rooms", "site"), ("places", "campus")):
+        for old, in conn.execute(f"SELECT DISTINCT {src} FROM {table} WHERE {src} IS NOT NULL").fetchall():
+            new = canonical(old)
+            if table == "rooms":
+                conn.execute("UPDATE rooms SET campus=? WHERE site=? AND campus IS NOT ?", (new, old, new))
+            elif new != old:
+                conn.execute("UPDATE places SET campus=? WHERE campus=?", (new, old))
+    conn.commit()
+    if conn.execute("SELECT 1 FROM meta WHERE key='window'").fetchone():   # window is per university now
+        conn.execute("INSERT OR IGNORE INTO meta(key, value) SELECT 'window:ETH', value FROM meta WHERE key='window'")
+        conn.execute("DELETE FROM meta WHERE key='window'")
+        conn.commit()
     if "note" not in {r[1] for r in conn.execute("PRAGMA table_info(places)")}:
         conn.execute("ALTER TABLE places ADD COLUMN note TEXT")   # added after Phase 1's first draft
         conn.commit()
     # DBs from before source_health: take the room fetch time from meta.
-    if conn.execute("INSERT OR IGNORE INTO source_health(source, last_attempt, last_success, max_age_s) "
-                    "SELECT 'eth_rooms', value, value, ? FROM meta WHERE key='last_fetch'",
-                    (DEFAULT_MAX_AGE,)).rowcount:
-        conn.commit()
+    conn.execute("INSERT OR IGNORE INTO source_health(source, last_attempt, last_success, max_age_s) "
+                 "SELECT 'eth_rooms', value, value, ? FROM meta WHERE key='last_fetch'", (DEFAULT_MAX_AGE,))
+    # Always commit: even an insert that inserts nothing opens a write transaction, and a connection
+    # left holding it (e.g. while /api/roomdetail waits for ETH) blocks every other connect() for up to 30 s.
+    conn.commit()
+
+
+def window_key(uni: str) -> str:
+    """meta key of the date range ('YYYY-MM-DD/YYYY-MM-DD') a university's room fetch covered."""
+    return f"window:{uni}"
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:

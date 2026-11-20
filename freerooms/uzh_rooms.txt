@@ -1,0 +1,178 @@
+# UZH teaching rooms we track: the "Zentrum", "Irchel" and "Oerlikon" views of UZH's public
+# room calendar (uzh.book.3vrooms.app), i.e. the centrally booked rooms (Hörsaaldisposition).
+# One id per line, as UZH spells it (building-floor-room). Built from the calendar of
+# 2026-11-20 with uzh.drop_reason(); a fetch logs a warning when the calendar has rooms that are
+# missing here, or no longer has rooms that are listed.
+#
+# Left out on purpose (bookable in the calendar, but not rooms to study in):
+#   - Apérofläche, Lager, Küche, Lichthof, Foyer, Mall, Medizinerhof, Bar, Eingangsbereich,
+#     Empfang, Dozierendenzimmer, Postersession, the "Vorlage" template and poster/vitrine spots
+#   - "EV" rooms (event rooms, e.g. KOL-E-13 EV Senatszimmer), except the ones the course
+#     catalogue showed regular teaching in (docs/uzh-validation.md); those are listed below
+#   - KOL-G-201 Aula: a standing block "Informationen über die Verfügbarkeit auf Anfrage"
+#     (2026-2030), i.e. only bookable on request, so it would always show as busy (uzh.EXCLUDED)
+#   - Labor-Praktikumsraum (teaching labs, Y14-F-21, Y14-F-41)
+#   - event spaces that only give a capacity in "Personen" (AFL-E-070 Olivenhalle, Y13-G-100)
+#   - combinations of rooms that are listed one by one (their bookings show up on the parts):
+#     AND-3-02/06, BIN-0-K.11/12, BIN-0-K.12/13, BIN-0-K.11/12/13, KUM-E-1/2/3, Y22-F-62/68,
+#     Y22-F-62/70 and Y22-F-62/68/70 (dropped when any part is listed itself)
+
+# Zentrum
+FRE-D-14
+FRE-D-15
+GLT-A-01
+GLT-A-02
+GLT-A-03
+GLT-A-04
+GLT-B-01
+HAH-E-03
+HAH-E-10
+HAH-E-11
+HAH-E-12
+HAH-E-6
+HAH-F-1
+KAB-E-03
+KAB-E-05
+KAB-G-01
+KO2-D-54
+KO2-F-150
+KO2-F-151
+KO2-F-152
+KO2-F-153
+KO2-F-155
+KO2-F-172
+KO2-F-173
+KO2-F-174
+KO2-F-175
+KO2-F-180
+KO2-G-275
+KOH-B-10
+KOL-D-2
+KOL-E-12
+KOL-E-18
+KOL-E-21
+KOL-F-101
+KOL-F-103
+KOL-F-104
+KOL-F-109
+KOL-F-117
+KOL-F-118
+KOL-F-121
+KOL-F-122
+KOL-F-123
+KOL-G-203
+KOL-G-204
+KOL-G-209
+KOL-G-210
+KOL-G-212
+KOL-G-216
+KOL-G-217
+KOL-G-220
+KOL-G-221
+KOL-G-222
+KOL-H-309
+KOL-H-312
+KOL-H-317
+KOL-H-320
+KOL-H-321
+KOL-H-322
+KOL-N-1
+KUM-E-1
+KUM-E-2
+KUM-E-3
+PLD-E-04
+RAA-E-08
+RAA-E-12
+RAA-E-21
+RAA-E-27
+RAA-E-29
+RAA-G-01
+RAA-G-15
+RAI-F-041
+RAI-G-041
+RAI-H-041
+RAI-J-031
+RAK-E-6
+RAK-E-7
+RAK-E-8
+SOC-F-101
+SOC-F-106
+SOD-1-101
+SOD-1-102
+SOD-1-104
+SOE-E-1
+SOE-E-2
+SOE-E-7
+SOE-E-8
+SOE-F-1
+SOE-F-11
+SOE-F-12
+SOE-F-2
+SOE-F-7
+SOE-F-8
+SOE-F-9
+SOF-E-05
+SOF-E-07
+SOF-E-13
+SOF-E-15
+SOF-E-17
+# Irchel
+Y03-G-85
+Y03-G-91
+Y03-G-95
+Y04-G-30
+Y13-L-11/13
+Y13-M-12
+Y15-G-19
+Y15-G-20
+Y15-G-40
+Y15-G-60
+Y16-G-05
+Y16-G-15
+Y17-M-05
+Y21-D-68a
+Y21-F-65
+Y21-F-70
+Y22-F-62
+Y22-F-68
+Y23-G-04
+Y24-G-45
+Y24-G-55
+Y27-H-35/36
+Y35-F-08a
+Y35-F-27a
+Y35-F-32
+Y35-F-47
+Y35-F-51
+Y44-H-05
+# Oerlikon
+AFL-E-009
+AFL-E-011
+AFL-E-015
+AFL-E-019
+AFL-E-020
+AFL-E-022
+AFL-F-121
+AND-2-02
+AND-2-04
+AND-2-06
+AND-2-44
+AND-2-46
+AND-2-48
+AND-3-02
+AND-3-06
+AND-3-44
+AND-3-46
+AND-3-48
+AND-4-02
+AND-4-06
+AND-5-29/31
+BIN-0-B.11
+BIN-0-K.02
+BIN-0-K.11
+BIN-0-K.12
+BIN-0-K.13
+BIN-1-B.01
+BIN-1-D.22
+BIN-1-D.25
+BIN-1-E.01

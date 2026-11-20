@@ -125,10 +125,10 @@ def _dt(s: str) -> datetime:
 
 def query(conn: sqlite3.Connection, t: datetime) -> list[dict]:
     """Status of every stored room at local time t, as JSON-ready dicts."""
-    window = conn.execute("SELECT value FROM meta WHERE key='window'").fetchone()
-    window_end = None
-    if window:
-        window_end = datetime.fromisoformat(window[0].split("/")[1]) + timedelta(days=1)
+    # Each university's fetch covers its own date range: past its end, a room is unknown.
+    window_end: dict[str, datetime] = {}
+    for key, value in conn.execute("SELECT key, value FROM meta WHERE key LIKE 'window:%'"):
+        window_end[key.split(":", 1)[1]] = datetime.fromisoformat(value.split("/")[1]) + timedelta(days=1)
 
     by_room: dict[str, list[Interval]] = {}
     for row in conn.execute("SELECT room_id, start, end, kind, title FROM intervals WHERE end > ? AND kind != 'cancelled'",
@@ -150,8 +150,9 @@ def query(conn: sqlite3.Connection, t: datetime) -> list[dict]:
 
     out = []
     for r in conn.execute("SELECT * FROM rooms ORDER BY id"):
-        st = room_status(by_room.get(r["id"], []), t, has_data=bool(r["n_entries"]), window_end=window_end)
-        d = {k: r[k] for k in ("id", "building", "floor", "room", "type", "typecode", "seats", "workplaces", "site")}
+        st = room_status(by_room.get(r["id"], []), t, has_data=bool(r["n_entries"]), window_end=window_end.get(r["uni"]))
+        d = {k: r[k] for k in ("id", "uni", "campus", "building", "floor", "room", "type", "typecode", "seats",
+                               "workplaces", "site")}
         d.update(asdict(st))
         d["until"] = st.until.isoformat(timespec="minutes") if st.until else None
         d["minutes"] = st.minutes(t)

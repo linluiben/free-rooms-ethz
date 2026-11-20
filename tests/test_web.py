@@ -49,6 +49,53 @@ class Detail(unittest.TestCase):
         finally:
             httpd.shutdown()
 
+    def test_endpoint_never_asks_eth_about_uzh_rooms(self):
+        import tempfile, os
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        conn = store.connect(db)
+        conn.execute("INSERT INTO rooms(id, building, floor, room, uni, campus) VALUES ('KOL-F-101', 'KOL', 'F', '101', 'UZH', 'Zentrum')")
+        conn.commit()
+        client = FakeClient()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db, client))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/roomdetail?id=KOL-F-101")
+            self.assertEqual(e.exception.code, 404)
+            self.assertIn("error", json.load(e.exception))
+            self.assertEqual(client.calls, 0)
+        finally:
+            httpd.shutdown()
+
+
+class Rooms(unittest.TestCase):
+    def test_connect_leaves_no_write_transaction_open(self):
+        # A connection holding one would block every other request while /api/roomdetail waits for ETH.
+        import tempfile, os
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        store.connect(db).execute("INSERT INTO meta(key, value) VALUES ('last_fetch', '2026-11-20T10:00:00+00:00')").connection.commit()
+        self.assertFalse(store.connect(db).in_transaction)
+
+    def test_rooms_carry_uni_and_campus(self):
+        import tempfile, os
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        conn = store.connect(db)
+        conn.execute("INSERT INTO rooms(id, building, floor, room, site, uni, campus, n_entries) "
+                     "VALUES ('HG E 1.2', 'HG', 'E', '1.2', 'Zürich Zentrum', 'ETH', 'Zentrum', 1)")
+        conn.execute("INSERT INTO rooms(id, building, floor, room, site, uni, campus, n_entries) "
+                     "VALUES ('Y15-G-19', 'Y15', 'G', '19', 'Irchel', 'UZH', 'Irchel', 1)")
+        conn.commit()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db, FakeClient()))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/rooms?at=2026-11-20T10:00") as r:
+                rooms = {x["id"]: x for x in json.load(r)["rooms"]}
+            self.assertEqual((rooms["HG E 1.2"]["uni"], rooms["HG E 1.2"]["campus"]), ("ETH", "Zentrum"))
+            self.assertEqual((rooms["Y15-G-19"]["uni"], rooms["Y15-G-19"]["campus"], rooms["Y15-G-19"]["building"]),
+                             ("UZH", "Irchel", "Y15"))
+        finally:
+            httpd.shutdown()
+
 
 class Spaces(unittest.TestCase):
     def test_places_inlined_only_for_spaces_view(self):

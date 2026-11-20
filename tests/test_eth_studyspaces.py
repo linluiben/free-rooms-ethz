@@ -29,7 +29,7 @@ class Places(unittest.TestCase):
     def test_library(self):
         p = self.places["eth_studyspaces:HGH30.1"]
         self.assertEqual((p.uni, p.source, p.campus, p.building, p.seats),
-                         ("ETH", "eth_studyspaces", "Zürich Zentrum", "HG", 150))
+                         ("ETH", "eth_studyspaces", "Zentrum", "HG", 150))
         self.assertEqual(p.name, "ETH-Bibliothek, Lesesaal (HG H 30.1)")
         self.assertEqual(p.url, "https://ethz.ch/en/utils/location.html.html?building=HG&floor=H&room=30.1")
         h = p.hours
@@ -127,7 +127,7 @@ class EndToEnd(unittest.TestCase):
         rows = {r["id"]: r for r in latest(conn)}
         self.assertEqual(rows["eth_studyspaces:HGH30.1"]["latest"]["count"], 32)
         chn = rows["eth_studyspaces:CHNF46"]   # seminar room with a sensor: a place with a note
-        self.assertEqual((chn["name"], chn["campus"]), ("CHN F 46", "Zürich Zentrum"))
+        self.assertEqual((chn["name"], chn["campus"]), ("CHN F 46", "Zentrum"))
         self.assertIn("Rooms view", chn["note"])
         self.assertIsNotNone(chn["latest"]["pct"])
         self.assertEqual(rows["eth_studyspaces:MMB79"]["hours"]["meals"]["mon"][1], ["17:30", "19:30"])

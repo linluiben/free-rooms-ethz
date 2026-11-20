@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from . import store
 from .api import ApiClient, query_id
 from .availability import TZ
+from .campus import canonical
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ DEFAULT_SITES = ("Zürich Zentrum", "Zürich Hönggerberg")
 
 ROOMS_FILE = Path(__file__).with_name("rooms.txt")
 SOURCE = "eth_rooms"      # key in store.source_health
+UNI = "ETH"
 
 
 def load_allowlist(path: Path = ROOMS_FILE) -> frozenset[str]:
@@ -129,7 +131,7 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
         log.warning("rooms.txt lists rooms the API no longer knows: %s", ", ".join(sorted(gone)))
     # Drop rooms that are no longer selected (e.g. department rooms from older versions).
     keep = [query_id(r) for r in rooms]
-    conn.execute(f"DELETE FROM rooms WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
+    conn.execute(f"DELETE FROM rooms WHERE uni=? AND id NOT IN ({','.join('?' * len(keep))})", (UNI, *keep))
     conn.commit()
 
     today = datetime.now(TZ).date()
@@ -174,7 +176,7 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
         stats["intervals"] += len(rows)
         log.debug("[%d/%d] %s: %d raw, %d kept", i, len(rooms), rid, len(allocs), len(rows))
 
-    store.set_meta(conn, "window", f"{start.isoformat()}/{end.isoformat()}")
+    store.set_meta(conn, store.window_key(UNI), f"{start.isoformat()}/{end.isoformat()}")
     conn.commit()
     log.info("fetch done: %s", stats)
     return stats
@@ -182,14 +184,15 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
 
 def _save_room(conn, r: dict, rid: str, rows, n_raw: int, start: date, end: date) -> None:
     conn.execute(
-        """INSERT INTO rooms(id, building, floor, room, type, typecode, seats, workplaces, site, fetched_at, n_entries)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """INSERT INTO rooms(id, building, floor, room, type, typecode, seats, workplaces, site, uni, campus,
+                              fetched_at, n_entries)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET building=excluded.building, floor=excluded.floor,
              room=excluded.room, type=excluded.type, typecode=excluded.typecode, seats=excluded.seats,
              workplaces=excluded.workplaces,
-             site=excluded.site, fetched_at=excluded.fetched_at, n_entries=excluded.n_entries""",
+             site=excluded.site, uni=excluded.uni, campus=excluded.campus, fetched_at=excluded.fetched_at, n_entries=excluded.n_entries""",
         (rid, r["building"], r["floor"], r["room"], r.get("type"), r.get("typecode"), r.get("seats"),
-         r.get("workplaces"), r.get("locationName"), datetime.now(timezone.utc).isoformat(timespec="seconds"), n_raw),
+         r.get("workplaces"), r.get("locationName"), UNI, canonical(r.get("locationName")), datetime.now(timezone.utc).isoformat(timespec="seconds"), n_raw),
     )
     # Replace everything for this room (also drops past/stale entries).
     conn.execute("DELETE FROM intervals WHERE room_id=?", (rid,))
@@ -198,3 +201,38 @@ def _save_room(conn, r: dict, rid: str, rows, n_raw: int, start: date, end: date
         [(rid, *row) for row in rows],
     )
     conn.commit()
+
+
+UNIS = ("ETH", "UZH")
+SOURCES = {"ETH": SOURCE, "UZH": "uzh_rooms"}   # source_health key per university (uzh.SOURCE)
+
+
+def parse_unis(value: str | None) -> tuple[str, ...]:
+    """'ETH,UZH' -> ('ETH', 'UZH'); None/empty -> both. Unknown names are an error."""
+    unis = tuple(dict.fromkeys(u.strip().upper() for u in (value or ",".join(UNIS)).split(",") if u.strip()))
+    bad = [u for u in unis if u not in UNIS]
+    if bad or not unis:
+        raise ValueError(f"unknown universities {bad}, choose from {', '.join(UNIS)}")
+    return unis
+
+
+def run_uni(conn: sqlite3.Connection, uni: str, eth: dict | None = None, uzh: dict | None = None) -> dict:
+    """Fetch one university's rooms; `eth`/`uzh` are the keyword arguments of fetch.run / uzh.run."""
+    if uni == "ETH":
+        return run(conn, **(eth or {}))
+    from . import uzh as uzh_mod   # uzh imports nothing from here, but keep fetch light to import
+    return uzh_mod.run(conn, **(uzh or {}))
+
+
+def run_all(conn: sqlite3.Connection, unis: tuple[str, ...] = UNIS, eth: dict | None = None,
+            uzh: dict | None = None) -> dict[str, dict | None]:
+    """Fetch every university in `unis`. One failing never stops the others; each records its
+    own health. Returns {uni: stats, or None if it failed}."""
+    out: dict[str, dict | None] = {}
+    for uni in unis:
+        try:
+            out[uni] = run_uni(conn, uni, eth, uzh)
+        except Exception:
+            log.exception("%s room fetch failed", uni)
+            out[uni] = None
+    return out
