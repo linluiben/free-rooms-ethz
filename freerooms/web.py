@@ -5,6 +5,7 @@ GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zur
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH
 GET /api/places               -> study places with their latest live occupancy sample
+GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
 """
@@ -15,14 +16,14 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import fetch, live, places, store
 from .api import ApiClient
-from .availability import building_hours, now_local, query
+from .availability import TZ, building_hours, now_local, query
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -81,6 +82,9 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     self._json(h, 503 if h["status"] == "stale" else 200)
                 elif url.path == "/api/places":
                     self._json(self._places())
+                elif url.path == "/api/place":
+                    p = self._place(qs)
+                    self._json(p or {"error": "unknown place"}, 200 if p else 404)
                 elif url.path == "/api/rooms":
                     self._json(self._rooms(qs))
                 elif url.path == "/api/room":
@@ -124,6 +128,33 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                         "health": store.health(conn, sources), "places": places.latest(conn)}
             finally:
                 conn.close()
+
+        def _place(self, qs) -> dict | None:
+            """One place as in /api/places plus its samples for a Zurich day; its sub-places in `kids`.
+            Each sample also gets `local` (naive Zurich time). None for an id that isn't in `places`."""
+            pid = qs.get("id")
+            if not pid:
+                raise ValueError("missing id")
+            day = date.fromisoformat(qs["date"]) if qs.get("date") else now_local().date()
+            start = datetime(day.year, day.month, day.day, tzinfo=TZ)
+            end = start + timedelta(days=1)   # wall-clock midnight; DST days are 23 or 25 h long
+            conn = store.connect(db_path)
+            try:
+                all_places = places.latest(conn)
+                place = next((p for p in all_places if p["id"] == pid), None)
+                if place is None:
+                    return None
+                kids = [p for p in all_places if p["parent_id"] == pid]
+                samples = places.samples_between(conn, [pid, *(k["id"] for k in kids)],
+                                                 places.utc_iso(start), places.utc_iso(end))
+            finally:
+                conn.close()
+            for p in (place, *kids):
+                p["samples"] = samples[p["id"]]
+                for s in p["samples"]:
+                    s["local"] = datetime.fromisoformat(s["ts"]).astimezone(TZ).strftime("%Y-%m-%dT%H:%M")
+            return {"now": now_local().isoformat(timespec="minutes"), "date": day.isoformat(),
+                    "place": place, "kids": kids}
 
         def _room(self, qs):
             rid = qs.get("id") or ""

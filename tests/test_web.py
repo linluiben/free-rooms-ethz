@@ -74,6 +74,45 @@ class Spaces(unittest.TestCase):
         finally:
             httpd.shutdown()
 
+    def test_place_day_samples(self):
+        import tempfile, os
+        from freerooms.places import Place, Sample, add_samples, upsert_places
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        conn = store.connect(db)
+        upsert_places(conn, [Place(id="t:lib", uni="ETH", name="Lib", source="t"),
+                             Place(id="t:lib:G", uni="ETH", name="Lib G", source="t", parent_id="t:lib"),
+                             Place(id="t:other", uni="UZH", name="Other", source="t")])
+        add_samples(conn, [
+            Sample("t:lib", "2026-11-19T22:55:00+00:00", status="green", pct=10.0),   # 23:55 Zurich, Nov 19
+            Sample("t:lib", "2026-11-19T23:05:00+00:00", status="green", pct=20.0),   # 00:05 Zurich, Nov 20
+            Sample("t:lib", "2026-11-20T10:00:00+00:00", status="unknown"),
+            Sample("t:lib:G", "2026-11-20T10:00:00+00:00", status="red", pct=95.0, count=19, max=20),
+            Sample("t:other", "2026-11-20T10:00:00+00:00", status="green", pct=1.0),
+        ])
+        conn.commit()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db, FakeClient()))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_port}/api/place?"
+        try:
+            with urllib.request.urlopen(base + "id=t:lib&date=2026-11-20") as r:
+                d = json.load(r)
+            self.assertEqual(d["date"], "2026-11-20")
+            self.assertEqual(d["place"]["name"], "Lib")
+            self.assertEqual(d["place"]["latest"]["status"], "unknown")      # same shape as /api/places
+            self.assertEqual([(s["local"], s["pct"]) for s in d["place"]["samples"]],
+                             [("2026-11-20T00:05", 20.0), ("2026-11-20T11:00", None)])
+            self.assertEqual([k["id"] for k in d["kids"]], ["t:lib:G"])
+            self.assertEqual(d["kids"][0]["samples"][0]["count"], 19)
+            self.assertIs(d["kids"][0]["samples"][0]["closed"], False)
+            with urllib.request.urlopen(base + "id=t:lib&date=2026-11-19") as r:
+                self.assertEqual([s["local"] for s in json.load(r)["place"]["samples"]], ["2026-11-19T23:55"])
+            for qs, code in (("id=nope", 404), ("id=t:lib&date=2026-13-01", 400), ("", 400)):
+                with self.assertRaises(urllib.error.HTTPError) as e:
+                    urllib.request.urlopen(base + qs)
+                self.assertEqual(e.exception.code, code, qs)
+        finally:
+            httpd.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()
