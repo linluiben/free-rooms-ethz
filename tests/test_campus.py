@@ -15,7 +15,8 @@ class CanonicalTest(unittest.TestCase):
         self.assertEqual(canonical("AC"), "Basel")
 
     def test_unknown_and_empty(self):
-        self.assertEqual(canonical("Botanischer Garten"), "Botanischer Garten")
+        self.assertEqual(canonical("Wädenswil"), "Wädenswil")
+        self.assertEqual(canonical("Botanischer Garten"), "Zentrum")
         self.assertIsNone(canonical(None))
         self.assertIsNone(canonical(" "))
 

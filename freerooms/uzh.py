@@ -56,7 +56,8 @@ ROOM_TYPE = "1"           # RessourcetypId of rooms; "2" is equipment (projector
 KINDS = {
     "1": "busy",          # booking ("belegt", no event names)
     "O": "closed",        # outside opening hours (nights, weekends)
-    "S": "busy",          # Sperrzeit: blocked, e.g. "Buchbar ab 18:00 Uhr.", "Einsehbar ab 15. März 2027"
+    "S": "busy",          # Sperrzeit: blocked, e.g. "Buchbar ab 18:00 Uhr.", "Einsehbar ab 15. März 2027";
+                          # closed instead when its text says "geschlossen" (normalize_block)
     "F": "closed",        # Feiertag: "Karfreitag UZH geschlossen", "Weihnachtsferien UZH geschlossen"
 }
 
@@ -216,7 +217,14 @@ _PERSONS = re.compile(r"\d+\s*Personen", re.I)
 # Bookable spaces in the calendar that are not rooms to study in (checked against the list of 2026-11-20).
 _NOT_ROOMS = re.compile(
     r"Apérofläche|Lager|Küche|Lichthof|Foyer|Vorlage|Eingangsbereich|Empfang|Dozierendenzimmer|"
-    r"Plakat|Vitrine|Magnetboard|Poster|Labor|Mall|Medizinerhof|\bBar\b|\bEV\b", re.I)
+    r"Plakat|Vitrine|Magnetboard|Poster|Labor|Mall|Medizinerhof|\bBar\b", re.I)
+# "EV" (event) rooms are dropped unless uzh_rooms.txt lists them: some host regular courses (#14).
+_EVENT = re.compile(r"\bEV\b")
+EVENT_ROOM = "event room (EV)"
+# Rooms left out on purpose although their title looks like a teaching room (no warning for them).
+EXCLUDED = {"KOL-G-201": "only bookable on request (standing S block 2026-2030), would always show busy"}
+# An S block whose text says the building is closed is a closure, e.g. "Semesterferien GLT geschlossen".
+_CLOSED_TEXT = re.compile(r"geschlossen", re.I)
 
 
 def parse_title(title: str) -> dict | None:
@@ -247,6 +255,8 @@ def drop_reason(title: str, known_ids: set[str] = frozenset()) -> str | None:
     m = _NOT_ROOMS.search(title)
     if m:
         return f"not a room ({m[0]})"
+    if _EVENT.search(title):
+        return EVENT_ROOM
     if _PERSONS.search(title) and not p["seats"]:
         return "event space (capacity in Personen)"
     parts = combo_parts(p["id"])
@@ -326,6 +336,8 @@ def normalize_block(b: dict, warned: set | None = None) -> tuple[datetime, datet
     title = None
     if t in ("S", "F") or t not in KINDS:   # bookings only say "belegt"; closures need no title
         title = (b.get("Titel") or "").strip() or (b.get("Kommentar") or "").strip() or None
+    if t == "S" and title and _CLOSED_TEXT.search(title):
+        kind = "closed"
     return _wall(b["BeginnEffective"]), _wall(b["EndeEffective"]), kind, title, t
 
 
@@ -400,14 +412,16 @@ def _run(conn, client: UzhClient, days: int, today: date) -> dict:
     allow = load_allowlist()
     known = {p["id"] for p in parsed.values()}
     # Both checks: "KOL-F-101 Apérofläche" has the same id as the lecture hall KOL-F-101.
-    selected = {i: p for i, p in parsed.items() if p["id"] in allow and drop_reason(titles[i], known) is None}
+    # An EV room is kept only when the allowlist names it (see uzh_rooms.txt).
+    selected = {i: p for i, p in parsed.items()
+                if p["id"] in allow and drop_reason(titles[i], known) in (None, EVENT_ROOM)}
     if not selected:
         raise ValueError(f"none of the {len(by_id)} UZH rooms is in uzh_rooms.txt")
     gone = allow - known
     if gone:
         log.warning("uzh_rooms.txt lists rooms the calendar no longer has: %s", ", ".join(sorted(gone)))
     new = sorted(titles[i] for i, p in parsed.items()
-                 if p["id"] not in allow and drop_reason(titles[i], known) is None)
+                 if p["id"] not in allow and p["id"] not in EXCLUDED and drop_reason(titles[i], known) is None)
     if new:
         log.warning("UZH rooms not in uzh_rooms.txt (add them if they are teaching rooms): %s", "; ".join(new))
     dupes = [rid for rid, n in Counter(p["id"] for p in selected.values()).items() if n > 1]

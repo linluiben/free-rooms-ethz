@@ -194,6 +194,7 @@ const CAMPUS_ALIASES = {
   "zürich hönggerberg": "Hönggerberg", "zuerich hoenggerberg": "Hönggerberg", "hönggerberg": "Hönggerberg",
   hoenggerberg: "Hönggerberg", zh: "Hönggerberg", "eth hönggerberg": "Hönggerberg",
   irchel: "Irchel", "uzh irchel": "Irchel", oerlikon: "Oerlikon", "uzh oerlikon": "Oerlikon", basel: "Basel", ac: "Basel",
+  "botanischer garten": "Zentrum",
 };
 const canonCampus = s => s == null ? null : CAMPUS_ALIASES[String(s).trim().toLowerCase()] || String(s).trim() || null;
 const campusRank = c => { const i = CAMPUS_ORDER.indexOf(c); return i < 0 ? CAMPUS_ORDER.length : i; };
@@ -580,10 +581,14 @@ const FEATURES = {
 };
 const MAIN_FEATURES = ["Quiet", "Sockets", "24 h", "Windows"];
 Object.assign(state, { places: null, placesAt: 0, placesErr: false, sp: loadSp(), spMore: false });
-// Older versions keyed the campus filter by "uni|campus" (e.g. "ETH|ZZ"): keep just the campus.
+// The study view shares the university/campus choice with Rooms and Buildings (state.where, fr.where);
+// only the feature chips are its own (fr.sp).
 function loadSp() {
   const f = store.get("sp", null) || {};
-  return { uni: f.uni || "", campus: canonCampus(String(f.campus || "").split("|").pop()) || "", feats: Array.isArray(f.feats) ? f.feats : [] };
+  const sp = { feats: Array.isArray(f.feats) ? f.feats : [] };
+  for (const k of ["uni", "campus"])
+    Object.defineProperty(sp, k, { enumerable: true, get: () => state.where[k], set: v => { state.where[k] = v; } });
+  return sp;
 }
 
 async function loadPlaces() {
@@ -928,7 +933,9 @@ $("#sfilter").addEventListener("click", e => {
   if (x.more) state.spMore = !state.spMore;
   else if (x.uni || x.campus) clickWhere(f, x, state.places ? placeTree(state.places).top : []);
   else if (x.feat) f.feats = f.feats.includes(x.feat) ? f.feats.filter(k => k !== x.feat) : [...f.feats, x.feat];
-  store.set("sp", f); render();
+  store.set("sp", { feats: f.feats }); store.set("where", state.where);
+  if (state.data) fillBuildings();
+  render();
 });
 
 // --- controls ---

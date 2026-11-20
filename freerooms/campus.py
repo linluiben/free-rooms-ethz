@@ -19,6 +19,8 @@ _ALIASES = {
     "irchel": IRCHEL, "uzh irchel": IRCHEL,
     "oerlikon": OERLIKON, "uzh oerlikon": OERLIKON,
     "basel": BASEL, "ac": BASEL,
+    # UZH's Botanischer Garten (Zollikerstrasse) is ~1.5 km from Zentrum; no campus chip of its own.
+    "botanischer garten": ZENTRUM,
 }
 
 

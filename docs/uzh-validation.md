@@ -29,7 +29,7 @@ In week 48, 3,617 courses meet. We fetched the detail of about 1,000 of them, ab
 3. **Cancelled courses disappear from 3V.** Courses marked "findet nicht statt" keep their dates in the catalogue, but the meetings have no room. Their slots were free in 3V in RAA-E-21, RAK-E-6 and SOE-F-8, and in GLT-A-03 someone else booked part of the slot (15:00–15:45). In one case, AFL-E-022 on Tue 10:15, the slot was still booked in 3V. That is the safe direction: the room shows as busy.
 4. **Combined rooms.** A booking of a combination (`BIN-0-K.11/12/13`, `AND-3-02/06`, `Y22-F-62/68/70`) also shows up as `belegt` on each part. We checked 14 meetings, and all parts were busy. This confirms that we can drop combinations from `uzh_rooms.txt`.
 5. **Blocks only in 3V** (23 in the sample rooms) are mostly evening events (18:00–21:45), a few daytime bookings and the standing `S` block on KOL-G-201. None of them matter for safety.
-6. **KOL-G-201 Aula** has a standing `S` block "Informationen über die Verfügbarkeit auf Anfrage." from 11 Mar 2026 to 31 Dec 2030. It is the only room with one. It also has normal bookings that match the catalogue (8 of 8), but because of the `S` block we always show it as busy. That is safe, if not very useful.
+6. **KOL-G-201 Aula** has a standing `S` block "Informationen über die Verfügbarkeit auf Anfrage." from 11 Mar 2026 to 31 Dec 2030. It is the only room with one. It also has normal bookings that match the catalogue (8 of 8), but because of the `S` block we always show it as busy. That is safe, if not very useful. **Decision:** the Aula is left out of `uzh_rooms.txt`.
 
 ### The one miss
 
@@ -41,7 +41,7 @@ About 1,020 catalogue meetings that week are in rooms that are not in the 3V cam
 
 Some catalogue rooms *are* in 3V but we drop them on purpose:
 
-- **"EV" rooms** with courses: KO2-F-152 (4 meetings), KO2-F-173 (4), KOL-G-217 (3), KOL-H-309 (3), KO2-F-151 (2), KOL-G-210, KOL-G-212, KOL-E-13 (1 each). The KOL-E-13 course is in 3V. We drop them as event rooms, which is fine. We could add them later if they are open for studying.
+- **"EV" rooms** with courses: KO2-F-152 (4 meetings), KO2-F-173 (4), KOL-G-217 (3), KOL-H-309 (3), KO2-F-151 (2), KOL-G-210, KOL-G-212, KOL-E-13 (1 each). The KOL-E-13 course is in 3V. **Decision:** all of them except KOL-E-13 (Senatszimmer) are now in `uzh_rooms.txt`; other EV rooms stay out.
 - **Labs** Y14-F-21 and Y14-F-41: dropped on purpose.
 
 ## What `F` means
@@ -58,7 +58,7 @@ Some catalogue rooms *are* in 3V but we drop them on purpose:
 
 This matches the [UZH semester dates](https://www.uzh.ch/de/studies/dates/dates.html): the Easter break starts "25. März 2027 ab 16.00 Uhr". The week we checked (23–27 Nov) has no `F` blocks, and the semester dates list no closures in HS 2026. Treating `F` as *closed* is right. Note that `F` days can still have a few `1` bookings (111 on 24 Dec, 11 on 28 Dec). Showing those rooms as closed is fine.
 
-Related: the GLT rooms have *`S`* blocks "Semesterferien GLT geschlossen (25.12.2026 - 21.02.2027)". It is a closure, but because it is `S` we show it as busy rather than closed. That is safe, and only the label is slightly off.
+Related: the GLT rooms have *`S`* blocks "Semesterferien GLT geschlossen (25.12.2026 - 21.02.2027)". It is a closure, but because it is `S` we show it as busy rather than closed. That is safe, and only the label is slightly off. **Decision:** `S` blocks whose text says "geschlossen" are now treated as closed.
 
 ## Conclusion
 

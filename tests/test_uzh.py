@@ -191,6 +191,20 @@ class Titles(unittest.TestCase):
                 self.assertIsNone(uzh.parse_title(title))
                 self.assertIsNotNone(uzh.drop_reason(title))
 
+    def test_s_block_saying_closed_is_a_closure(self):
+        b = {"RessourceTyp": "S", "BeginnEffective": "2026-12-25T00:00:00Z", "EndeEffective": "2027-02-21T23:59:00Z",
+             "Titel": "Semesterferien GLT geschlossen"}
+        self.assertEqual(uzh.normalize_block(b)[2:4], ("closed", "Semesterferien GLT geschlossen"))
+        b["Titel"] = "Informationen über die Verfügbarkeit auf Anfrage."
+        self.assertEqual(uzh.normalize_block(b)[2], "busy")
+
+    def test_ev_rooms_only_when_listed(self):
+        self.assertEqual(uzh.drop_reason("KOL-G-217 EV (129 Plätze) **"), uzh.EVENT_ROOM)
+        allow = uzh.load_allowlist()
+        self.assertIn("KOL-G-217", allow)        # regular courses there (docs/uzh-validation.md)
+        self.assertNotIn("KOL-E-13", allow)      # Senatszimmer stays out
+        self.assertNotIn("KOL-G-201", allow)
+
     def test_drop_reasons(self):
         known = {"AND-3-02", "AND-3-06", "BIN-0-K.11", "BIN-0-K.12", "BIN-0-K.13", "Y22-F-62"}
         dropped = ["KOL-F-101 Apérofläche (209 Personen)", "KOL-G-202 (Lager)", "KOL-G-217 EV (129 Plätze) **",
@@ -299,15 +313,15 @@ class FetchRun(unittest.TestCase):
         # 1 filter list + 3 campus views for day 1 + 1 id request for day 2
         self.assertEqual(len(self.fake.api_calls), 5)
         ids = {r["id"] for r in self.conn.execute("SELECT id FROM rooms WHERE uni='UZH'")}
-        self.assertEqual(ids, {"KOL-F-101", "KOL-G-201", "KAB-E-05", "KUM-E-1", "KOH-B-10", "RAI-F-041", "KOL-E-12",
+        self.assertEqual(ids, {"KOL-F-101", "KOL-G-217", "KAB-E-05", "KUM-E-1", "KOH-B-10", "RAI-F-041", "KOL-E-12",
                                "KOL-E-18", "Y15-G-20", "Y24-G-45", "Y35-F-08a", "AFL-E-009", "AND-3-02",
                                "AND-3-06", "BIN-1-B.01"})
         self.assertEqual(stats["campus"], {"Irchel": 3, "Oerlikon": 4, "Zentrum": 8})
         self.assertEqual((stats["rooms"], stats["ok"], stats["malformed"], stats["days"]), (15, 15, 0, 2))
-        self.assertEqual(set(stats["types"]), {"1", "O", "S", "F"})
-        r = self.conn.execute("SELECT * FROM rooms WHERE id='KOL-G-201'").fetchone()
-        self.assertEqual((r["uni"], r["campus"], r["site"], r["building"], r["floor"], r["room"], r["seats"], r["type"]),
-                         ("UZH", "Zentrum", "Zentrum", "KOL", "G", "201", 280, "Aula"))
+        self.assertEqual(set(stats["types"]), {"1", "O", "F"})   # the fixture's only S block is the Aula's
+        r = self.conn.execute("SELECT * FROM rooms WHERE id='KOL-F-101'").fetchone()
+        self.assertEqual((r["uni"], r["campus"], r["site"], r["building"], r["floor"], r["room"], r["seats"]),
+                         ("UZH", "Zentrum", "Zentrum", "KOL", "F", "101", 209))
         self.assertEqual(self.conn.execute("SELECT campus FROM rooms WHERE id='Y15-G-20'").fetchone()[0], "Irchel")
         self.assertEqual(store.get_meta(self.conn, store.window_key("UZH")), "2026-11-20/2026-11-21")
         h = store.health(self.conn, ("uzh_rooms",))["sources"]["uzh_rooms"]
@@ -328,9 +342,8 @@ class FetchRun(unittest.TestCase):
         # Saturday: real 'F' block "Hauptgebäude ab 13:30 geschlossen" (F is not only holidays).
         sat = self.rooms("2026-11-21T14:00")["KOL-F-101"]
         self.assertEqual((sat["state"], sat["reason"]), ("closed", "Hauptgebäude ab 13:30 geschlossen"))
-        # KOL-G-201 Aula has a standing 'S' block (2026-2030, "auf Anfrage"): never shown as free.
-        aula = self.rooms("2026-11-20T13:00")["KOL-G-201"]
-        self.assertEqual((aula["state"], aula["reason"]), ("busy", "Informationen über die Verfügbarkeit auf Anfrage."))
+        # KOL-G-201 Aula (standing 'S' block "auf Anfrage", 2026-2030) is left out of uzh_rooms.txt.
+        self.assertNotIn("KOL-G-201", self.rooms("2026-11-20T13:00"))
         self.assertEqual(self.rooms("2026-11-22T10:00")["KOL-F-101"]["state"], "unknown")   # past the window
         self.assertEqual(building_hours(self.conn, datetime(2026, 11, 20, 12))["KOL"], {"open": "07:00", "close": "22:00"})
 

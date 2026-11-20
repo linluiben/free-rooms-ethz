@@ -7,7 +7,10 @@
 # Left out on purpose (bookable in the calendar, but not rooms to study in):
 #   - Apérofläche, Lager, Küche, Lichthof, Foyer, Mall, Medizinerhof, Bar, Eingangsbereich,
 #     Empfang, Dozierendenzimmer, Postersession, the "Vorlage" template and poster/vitrine spots
-#   - "EV" rooms (event rooms, e.g. KOL-E-13 EV Senatszimmer, KOL-G-217 EV)
+#   - "EV" rooms (event rooms, e.g. KOL-E-13 EV Senatszimmer), except the ones the course
+#     catalogue showed regular teaching in (docs/uzh-validation.md); those are listed below
+#   - KOL-G-201 Aula: a standing block "Informationen über die Verfügbarkeit auf Anfrage"
+#     (2026-2030), i.e. only bookable on request, so it would always show as busy (uzh.EXCLUDED)
 #   - Labor-Praktikumsraum (teaching labs, Y14-F-21, Y14-F-41)
 #   - event spaces that only give a capacity in "Personen" (AFL-E-070 Olivenhalle, Y13-G-100)
 #   - combinations of rooms that are listed one by one (their bookings show up on the parts):
@@ -33,9 +36,12 @@ KAB-E-05
 KAB-G-01
 KO2-D-54
 KO2-F-150
+KO2-F-151
+KO2-F-152
 KO2-F-153
 KO2-F-155
 KO2-F-172
+KO2-F-173
 KO2-F-174
 KO2-F-175
 KO2-F-180
@@ -54,14 +60,17 @@ KOL-F-118
 KOL-F-121
 KOL-F-122
 KOL-F-123
-KOL-G-201
 KOL-G-203
 KOL-G-204
 KOL-G-209
+KOL-G-210
+KOL-G-212
 KOL-G-216
+KOL-G-217
 KOL-G-220
 KOL-G-221
 KOL-G-222
+KOL-H-309
 KOL-H-312
 KOL-H-317
 KOL-H-320
