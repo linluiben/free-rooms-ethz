@@ -457,6 +457,7 @@ function openPanel(id, push = true, kind = "room") {
     state.view = "spaces"; render(); if (!state.places) loadPlaces();
     if (!state.place) return;      // render() already closed it: unknown id
   }
+  if (kind === "room") delete $("#panel").dataset.place;
   $("#panel").setAttribute("aria-label", kind === "room" ? "Room details" : "Study place details");
   document.body.classList.add("panel-open");
   (kind === "room" ? renderPanel : renderPlacePanel)();
@@ -467,6 +468,7 @@ function closePanel(fromHistory = false) {
   const id = state.room || state.place;
   if (!id) return;
   state.room = state.place = null;
+  delete $("#panel").dataset.place;   // reopening later is a fresh open, not a refresh
   document.body.classList.remove("panel-open");
   for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
   if (!fromHistory) {
@@ -764,6 +766,26 @@ function weekHTML(p, nowIso) {
   return html;
 }
 
+// The minutely refresh rebuilds the panel. Remember which control had keyboard focus (and the
+// scroll position) so a keyboard or screen-reader user isn't thrown back to the top of the page.
+const FOCUSABLE = "a[href], button, summary, [tabindex]";
+function panelFocus() {
+  const panel = $("#panel"), a = document.activeElement;
+  if (!a || a === panel || !panel.contains(a)) return { top: panel.scrollTop };
+  return { top: panel.scrollTop, id: a.id, tag: a.tagName, href: a.getAttribute("href"), text: a.textContent,
+           idx: [...panel.querySelectorAll(FOCUSABLE)].indexOf(a) };
+}
+function restorePanelFocus(f) {
+  const panel = $("#panel");
+  panel.scrollTop = f.top;
+  if (f.tag == null) return;
+  const all = [...panel.querySelectorAll(FOCUSABLE)];
+  const el = (f.id && panel.querySelector("#" + CSS.escape(f.id)))
+    || all.find(e => e.tagName === f.tag && e.getAttribute("href") === f.href && e.textContent === f.text)
+    || all[Math.min(f.idx, all.length - 1)];
+  el?.focus({ preventScroll: true });
+}
+
 function renderPlacePanel() {
   const d = state.places;
   if (!d) { $("#panel").innerHTML = `<div class="grab"></div><p class="meta">Loading…</p>`; return; }
@@ -778,7 +800,9 @@ function renderPlacePanel() {
     : p.kids.length && o.rank === 0 ? "Sum of the floors below" : "";
   const notice = p.hours?.notice && (p.hours.notice.en || p.hours.notice.de);
   // Keep "As published" open across the minutely refresh of the same place.
-  const keepOpen = $("#panel").dataset.place === p.id && !!$("#panel details")?.open;
+  const refresh = $("#panel").dataset.place === p.id;
+  const keepOpen = refresh && !!$("#panel details")?.open;
+  const focus = refresh ? panelFocus() : null;
   const hi = hoursInfo(p, d.now);
   const feats = p.features.map(f => f.label || FEATURES[f.key] || f.key);
   // ETH location pages carry building/floor/room; the same triple opens ETH's room details.
@@ -815,6 +839,7 @@ function renderPlacePanel() {
   $("#panel").dataset.place = p.id;
   if (keepOpen && $("#panel details")) $("#panel details").open = true;
   fillCurves(p.id);
+  if (focus) restorePanelFocus(focus);
   loadPlaceDay(p.id);
   for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel");
   document.querySelector(`.card[data-id="${CSS.escape(p.id)}"]`)?.classList.add("sel");
