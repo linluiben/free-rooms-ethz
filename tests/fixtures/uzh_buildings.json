@@ -1,0 +1,90 @@
+{
+ "buildings": [
+  {
+   "shortName": "AFL",
+   "lat": 47.410822,
+   "lon": 8.540082,
+   "group": "Erweiterungsportfolio",
+   "zusatzInformation": "Cityport",
+   "types": [
+    "SEMINARRAUM",
+    "CAFETERIA",
+    "PRAKTIKUM",
+    "WC_BARRIEREFREI",
+    "LERNRAUM",
+    "HOERSAAL",
+    "GRUPPENRAUM",
+    "UNIVERSITAETSBIBLIOTHEK",
+    "SANITAETS_STILLZIMMER",
+    "KINDER_FAMILIE",
+    "POST",
+    "VALIDIERSTATION",
+    "DEFIBRILLATOR"
+   ],
+   "belegung": null
+  },
+  {
+   "shortName": "HIT",
+   "lat": 47.376213,
+   "lon": 8.545664,
+   "group": "Zentrum",
+   "zusatzInformation": "",
+   "types": [
+    "WC_BARRIEREFREI"
+   ],
+   "belegung": null
+  },
+  {
+   "shortName": "KOL",
+   "lat": 47.374543729781,
+   "lon": 8.5486129372104,
+   "group": "Zentrum",
+   "zusatzInformation": "Kollegiengebäude, Hauptgebäude",
+   "types": [
+    "SEMINARRAUM",
+    "MENSA",
+    "CAFETERIA",
+    "WC_BARRIEREFREI",
+    "LERNRAUM",
+    "INFO_BERATUNG",
+    "HOERSAAL",
+    "GRUPPENRAUM",
+    "UNIVERSITAETSBIBLIOTHEK",
+    "SANITAETS_STILLZIMMER",
+    "BEGEGNUNG_AUSTAUSCH",
+    "RUHE_MEDITATION",
+    "VALIDIERSTATION",
+    "DEFIBRILLATOR",
+    "SELBSTSTUDIUM",
+    "MENSTRUATIONSPRODUKTE"
+   ],
+   "belegung": null
+  },
+  {
+   "shortName": "Y63",
+   "lat": 47.3955,
+   "lon": 8.549948,
+   "group": "Irchel",
+   "zusatzInformation": "Lernzentrum",
+   "types": [
+    "WC_BARRIEREFREI",
+    "LERNRAUM",
+    "GRUPPENRAUM",
+    "SELBSTVERPFLEGUNG",
+    "DEFIBRILLATOR",
+    "SELBSTSTUDIUM"
+   ],
+   "belegung": null
+  },
+  {
+   "shortName": "bad code",
+   "lat": 47.0,
+   "lon": 8.5
+  },
+  {
+   "shortName": "NOP",
+   "lat": null,
+   "lon": null
+  }
+ ]
+}

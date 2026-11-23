@@ -1,4 +1,4 @@
-"""CLI: python -m freerooms {fetch,serve,now}"""
+"""CLI: python -m freerooms {fetch,serve,live,now,buildings}"""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ import argparse
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 
-from . import api, fetch, live, store, web
+from . import api, fetch, geo, live, store, web
 from .api import ApiClient
+from .http import Http
 from .availability import now_local, query
 
 
@@ -64,6 +66,10 @@ def main() -> None:
     n.add_argument("--min", type=int, default=0, help="only rooms free for at least N minutes")
     n.add_argument("--building")
 
+    bl = sub.add_parser("buildings", help="refresh building coordinates (freerooms/buildings.json) from UZH and OpenStreetMap")
+    bl.add_argument("--unis", default="ETH,UZH", help="comma-separated: ETH (OpenStreetMap), UZH (UZH floor-plan API)")
+    bl.add_argument("--out", default=str(geo.BUNDLED), help="the buildings file to update (default: the one shipped with the code)")
+
     a = p.parse_args()
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -94,6 +100,16 @@ def main() -> None:
                 print(f"{key}: {counts if counts is not None else 'FAILED (see log)'}")
             raise SystemExit(1 if any(c is None for c in res.values()) else 0)
         live.loop(a.db)
+    elif a.cmd == "buildings":
+        try:
+            unis = fetch.parse_unis(a.unis)
+        except ValueError as e:
+            p.error(str(e))
+        res = geo.refresh(Http(timeout=90), unis, store.connect(a.db), Path(a.out))
+        for uni, n in res.items():
+            print(f"{uni}: {n if isinstance(n, str) else f'{n} buildings'}")
+        print(f"written to {a.out}" if any(isinstance(n, int) for n in res.values()) else "nothing written")
+        raise SystemExit(1 if any(isinstance(n, str) for n in res.values()) else 0)
     elif a.cmd == "now":
         t = datetime.fromisoformat(a.at) if a.at else now_local()
         rooms = query(store.connect(a.db), t)
