@@ -1,6 +1,6 @@
 """Tiny stdlib web server: static UI + JSON API reading from SQLite.
 
-GET /                         -> UI (with ?view=spaces the study places are inlined too)
+GET /                         -> UI (with ?view=spaces or ?view=near the study places are inlined too)
 GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
@@ -95,7 +95,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     # Inline the current data so the first paint needs no extra request.
                     data = json.dumps(self._rooms({k: v for k, v in qs.items() if k == "at"}), ensure_ascii=False).replace("</", "<\\/")
                     html = (STATIC / "index.html").read_text().replace("/*INITIAL_DATA*/null", data, 1)
-                    if qs.get("view") == "spaces":
+                    if qs.get("view") in ("spaces", "near"):
                         data = json.dumps(self._places(), ensure_ascii=False).replace("</", "<\\/")
                         html = html.replace("/*INITIAL_PLACES*/null", data, 1)
                     self._send(200, html.encode(), "text/html; charset=utf-8")

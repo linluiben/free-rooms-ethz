@@ -126,6 +126,23 @@ Sources:
 - **ICBP Infozentrum** (`icbp`, every 5 min): the chemistry/biology library in HCI, as a whole and per floor (G, H, J), from the feed behind [infoz01.ethz.ch](https://infoz01.ethz.ch). Its numbers are attached to ETH's study space HCI G 5.1 (whose own sensor is silent), with the floors nested under it.
 - **UZH libraries** (`uzh_ub`): The `uzh_ub` live source reads the 12 occupancy widgets from the [UB overview page](https://www.ub.uzh.ch/de/ub-besuchen/belegung-alle.html) every 5 minutes, one request every 0.5 s. A label like "ca. 30% frei von 120" becomes 70 % occupied of 120 seats. "> 95% frei" is stored as 3 % occupied (like the widget's own bar), and "geschlossen" as closed. Widget 22 ("von 500") is listed as UB Rechtswissenschaft with an *unconfirmed* note: UZH doesn't link it anywhere, but the UB Recht page says "rund 500 Arbeitsplätze". Names, buildings and coordinates are a static table in [`freerooms/sources/uzh_ub.py`](freerooms/sources/uzh_ub.py).
 
+### Nearest free place (location)
+
+The **Near** tab answers "where can I sit down now?" with one tap: the rooms that are free for the chosen duration and the study spaces that are open with at least 20 % of the seats free, nearest first. The nearest one gets the door-sign plate, with the walking time and the direction. In Rooms, Buildings and Study, **Nearest first** sorts the same way; within ~500 m of a campus it also picks that campus once.
+
+- **Privacy:** the position comes from the browser (`navigator.geolocation`) and stays there. The server only sends building coordinates; the distance is worked out in the page. The position is never stored; the browser only remembers (`fr.geo`) that you allowed it, so the next visit doesn't need another tap.
+- **Walking time:** straight-line distance to the middle of the building × 1.25 for paths, at 80 m/min (4.8 km/h). Beyond 2.5 km the UI says "km away" instead. Same maths in [`freerooms/geo.py`](freerooms/geo.py) and the page.
+- **Coordinates** (one point per building) ship in [`freerooms/buildings.json`](freerooms/buildings.json) and are loaded into the `buildings` table when the server starts. `/api/rooms`, `/api/places` and `/api/place` add `lat`/`lon` to each room and place; `/api/buildings` lists them all. Refresh them by hand now and then:
+
+  ```sh
+  python -m freerooms buildings            # both; or --unis UZH / --unis ETH
+  ```
+
+  - UZH: [`ziplaene-api.uzh.ch/v1/map/buildings`](https://ziplaene-api.uzh.ch/v1/map/buildings), UZH's floor-plan API (231 buildings).
+  - ETH: OpenStreetMap via the Overpass API (`overpass-api.de`, two mirrors as fallback). ETH building outlines carry the building code as `ref`; we ask for the codes we use inside a box around each campus and take the centre of the outline. Codes OSM doesn't have are logged.
+
+  A failed source keeps the coordinates it had. Places without coordinates are listed under "Distance unknown".
+
 ## Development
 
 ```sh
