@@ -139,7 +139,7 @@ The **Near** tab answers "where can I sit down now?" with one tap: the rooms tha
   ```
 
   - UZH: [`ziplaene-api.uzh.ch/v1/map/buildings`](https://ziplaene-api.uzh.ch/v1/map/buildings), UZH's floor-plan API (231 buildings).
-  - ETH: OpenStreetMap via the Overpass API (`overpass-api.de`, two mirrors as fallback). ETH building outlines carry the building code as `ref`; we ask for the codes we use inside a box around each campus and take the centre of the outline. Codes OSM doesn't have are logged.
+  - ETH: OpenStreetMap via the Overpass API (`overpass-api.de`, two mirrors as fallback). Only a few ETH outlines name their building (`name="ETH HCI"`, `"ETH Hauptgebäude (HG)"`; `ref` where present); we ask for both inside a box around each campus and take the centre of the outline. Codes OSM can't name come from ETH's building map (`mapsearch.ethz.ch/map.do?gebaeudeMap=<code>`, address and point; HTTP only), one request a second; points outside every ETH campus are ignored. Codes neither source knows are logged.
 
   A failed source keeps the coordinates it had. Places without coordinates are listed under "Distance unknown".
 

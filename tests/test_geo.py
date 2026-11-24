@@ -27,6 +27,9 @@ class FakeHttp:
                 return ans
         raise AssertionError(url)
 
+    def get_text(self, url):
+        return self.get_json(url)
+
 
 class Distance(unittest.TestCase):
     def test_haversine(self):
@@ -59,6 +62,25 @@ class Parse(unittest.TestCase):
         self.assertIn("ML", text)                                # missing
         self.assertIn("ref=CAB", text)                           # two outlines ~700 m apart
 
+    def test_osm_code_from_name(self):
+        # Real OSM data: ETH outlines carry the code in `name`, not `ref` (HCI's ref is a building number).
+        raw = json.loads((FIX / "osm_eth_names.json").read_text())
+        bs = {b.code: b for b in geo.parse_osm(raw, ["HG", "HCI", "BSS", "NO", "CAB"])}
+        self.assertEqual(sorted(bs), ["BSS", "HCI", "HG", "NO"])   # CAB only in shop/venue names
+        self.assertEqual((bs["HG"].lat, bs["HG"].lon), (47.376427, 8.54781))
+        self.assertEqual((bs["NO"].lat, bs["NO"].lon), (47.37852, 8.5473))   # not the loading dock
+        self.assertEqual(geo.code_from_tags({"name": "ETH HIT"}, {"HIT"}), "HIT")
+        self.assertIsNone(geo.code_from_tags({"name": "ETH HIT"}, {"HG"}))
+
+    def test_mapsearch(self):
+        html = (FIX / "eth_mapsearch_hit.html").read_text()
+        b = geo.parse_mapsearch(html, "HIT")
+        self.assertEqual((b.uni, b.code, b.lat, b.lon, b.source), ("ETH", "HIT", 47.410381, 8.508163, "eth_mapsearch"))
+        self.assertEqual(b.name, "Wolfgang-Pauli-Strasse 27, 8093 Zürich")
+        # Unknown code: ETH's page has no map; a point outside every campus box is not trusted.
+        self.assertIsNone(geo.parse_mapsearch("<h2>Gebäude</h2>", "XYZ"))
+        self.assertIsNone(geo.parse_mapsearch(html.replace("47.410381", "46.9"), "HIT"))
+
     def test_query_lists_codes_once_per_campus(self):
         q = geo.overpass_query(["HG", "CAB", "HG"])
         self.assertEqual(q.count('"^(CAB|HG)$"'), len(geo.ETH_BBOXES))
@@ -74,9 +96,10 @@ class Refresh(unittest.TestCase):
     def test_refresh_merges_and_loads(self):
         uzh = json.loads((FIX / "uzh_buildings.json").read_text())
         osm = json.loads((FIX / "osm_eth.json").read_text())
-        http = FakeHttp({geo.UZH_URL: uzh, geo.OVERPASS_URLS[0]: OSError("reset"), geo.OVERPASS_URLS[1]: osm})
+        http = FakeHttp({geo.UZH_URL: uzh, geo.OVERPASS_URLS[0]: OSError("reset"), geo.OVERPASS_URLS[1]: osm,
+                         geo.MAPSEARCH_URL.split("{")[0]: OSError("down")})
         with self.assertLogs("freerooms.geo", "WARNING"):
-            res = geo.refresh(http, ("ETH", "UZH"), self.conn, self.path)
+            res = geo.refresh(http, ("ETH", "UZH"), self.conn, self.path, pause=0)
         self.assertEqual(res, {"ETH": 3, "UZH": 4})           # second Overpass instance answered
         where = geo.coords(self.conn)
         self.assertNotIn(("ETH", "HIT"), where)               # not in the OSM answer
@@ -90,9 +113,28 @@ class Refresh(unittest.TestCase):
         # A failed ETH refresh keeps the ETH buildings we had.
         http = FakeHttp({u: OSError("down") for u in geo.OVERPASS_URLS})
         with self.assertLogs("freerooms.geo", "WARNING"):
-            res = geo.refresh(http, ("ETH",), self.conn, self.path)
+            res = geo.refresh(http, ("ETH",), self.conn, self.path, pause=0)
         self.assertTrue(res["ETH"].startswith("FAILED"))
         self.assertEqual(len(json.loads(self.path.read_text())["buildings"]), 7)
+
+    def test_eth_gaps_filled_from_mapsearch(self):
+        osm = json.loads((FIX / "osm_eth.json").read_text())
+        hit = (FIX / "eth_mapsearch_hit.html").read_text()
+        ms = geo.MAPSEARCH_URL.split("{")[0]
+        http = FakeHttp({geo.OVERPASS_URLS[0]: osm, ms + "HIT&": hit, ms: "<h2>Gebäude</h2>"})
+        with self.assertLogs("freerooms.geo", "WARNING"):
+            bs = {b.code: b for b in geo.fetch_eth(http, ["HG", "HIT", "ML"], pause=0)}
+        self.assertEqual(sorted(bs), ["HG", "HIT"])            # ML: neither source knows it
+        self.assertEqual((bs["HG"].source, bs["HIT"].source), ("osm", "eth_mapsearch"))
+        # Only the codes OSM lacks are looked up on ETH's map pages.
+        self.assertEqual(sorted(u[len(ms):].split("&")[0] for u in http.urls if u.startswith(ms)), ["HIT", "ML"])
+
+    def test_mapsearch_gives_up_when_down(self):
+        ms = geo.MAPSEARCH_URL.split("{")[0]
+        http = FakeHttp({geo.OVERPASS_URLS[0]: {"elements": []}, ms: OSError("timeout")})
+        with self.assertLogs("freerooms.geo", "WARNING"):
+            self.assertEqual(geo.fetch_eth(http, [f"A{i}" for i in range(10)], pause=0), [])
+        self.assertEqual(sum(u.startswith(ms) for u in http.urls), 3)
 
     def test_sync_only_when_file_changes(self):
         geo.write_file({"generated": "a", "buildings": [

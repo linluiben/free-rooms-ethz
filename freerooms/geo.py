@@ -5,9 +5,11 @@ precise enough to rank places by walking time on a campus. They change rarely, s
 with the code in `buildings.json` and are refreshed by hand with `python -m freerooms buildings`:
 
 - UZH: the floor-plan API (ziplaene-api.uzh.ch/v1/map/buildings), lat/lon per building code.
-- ETH: OpenStreetMap via the Overpass API. ETH building outlines carry the building code as
-  `ref` (e.g. ref=HG); we ask for the codes we use (rooms.txt, study spaces) inside the bounding
+- ETH: OpenStreetMap via the Overpass API. A few ETH outlines carry the building code as `ref`,
+  most only in the name ("ETH HCI", "ETH Hauptgebäude (HG)"); we ask for both inside the bounding
   box of each ETH campus, and take the centre of the outline.
+- ETH, for buildings OSM can't name: ETH's own building map (mapsearch.ethz.ch), which gives the
+  address and its point. It agrees with the OSM centres to ~20 m where both exist.
 
 The user's location never reaches the server: the browser does the distance maths itself.
 This module's `distance_m` and `walk_min` are the reference for the UI's copy (and its tests).
@@ -19,6 +21,7 @@ import json
 import logging
 import math
 import re
+import time
 import sqlite3
 import urllib.parse
 from dataclasses import asdict, dataclass
@@ -35,6 +38,9 @@ OVERPASS_URLS = (
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 )
+# ETH's building map page: address and its point for a building code. HTTP only (no TLS there).
+MAPSEARCH_URL = "http://www.mapsearch.ethz.ch/map.do?gebaeudeMap={code}&lang=de"
+MAPSEARCH_GIVE_UP = 3   # consecutive failures: the site is down, don't wait out every code
 # (south, west, north, east) around each ETH campus, generous enough to hold every building.
 ETH_BBOXES = {
     "Zentrum": (47.366, 8.536, 47.386, 8.562),
@@ -94,7 +100,8 @@ def parse_uzh(raw: dict) -> list[Building]:
 
 def overpass_query(codes: list[str] | tuple[str, ...]) -> str:
     refs = "|".join(sorted(set(codes)))
-    parts = "".join(f'nwr["ref"~"^({refs})$"]({s},{w},{n},{e});' for s, w, n, e in ETH_BBOXES.values())
+    parts = "".join(f'nwr["ref"~"^({refs})$"]({s},{w},{n},{e});nwr["name"~"^ETH"]({s},{w},{n},{e});'
+                    for s, w, n, e in ETH_BBOXES.values())
     return f"[out:json][timeout:60];({parts});out center tags;"
 
 
@@ -104,15 +111,33 @@ def _score(tags: dict) -> int:
     return (2 if "building" in tags else 0) + (1 if "eth" in text or "eidgen" in text else 0)
 
 
+# Most ETH outlines in OSM carry the code only in the name: "ETH HCI", "ETH Zürich BSS",
+# "ETH: NO", "ETH Hauptgebäude (HG)". Shops and rooms ("ASVZ CAB Move & Relax") don't match.
+NAME_RES = (re.compile(r"^ETH(?: Zürich)?:?\s+([A-Z][A-Z0-9]{0,4})$"), re.compile(r"^ETH\b.*\(([A-Z][A-Z0-9]{0,4})\)$"))
+
+
+def code_from_tags(tags: dict, wanted: set[str]) -> str | None:
+    """The ETH building code of an OSM element: `ref`, else the name."""
+    ref = str(tags.get("ref", "")).strip()
+    if ref in wanted:
+        return ref
+    name = str(tags.get("name", "")).strip()
+    for r in NAME_RES:
+        m = r.match(name)
+        if m and m.group(1) in wanted:
+            return m.group(1)
+    return None
+
+
 def parse_osm(raw: dict, codes: list[str] | tuple[str, ...]) -> list[Building]:
     """One point per wanted code: the centre of the best-matching outline(s)."""
     wanted = set(codes)
     found: dict[str, list[tuple[int, float, float]]] = {}
     for e in raw.get("elements") or []:
         tags = e.get("tags") or {}
-        ref = str(tags.get("ref", "")).strip()
+        ref = code_from_tags(tags, wanted)
         c = e.get("center") or e
-        if ref not in wanted or not _valid(c.get("lat"), c.get("lon")):
+        if ref is None or not _valid(c.get("lat"), c.get("lon")):
             continue
         found.setdefault(ref, []).append((_score(tags), float(c["lat"]), float(c["lon"])))
     out = []
@@ -126,8 +151,25 @@ def parse_osm(raw: dict, codes: list[str] | tuple[str, ...]) -> list[Building]:
         out.append(Building("ETH", code, round(lat, 6), round(lon, 6), "osm"))
     missing = sorted(wanted - set(found))
     if missing:
-        log.warning("no OSM outline with ref for ETH buildings: %s", ", ".join(missing))
+        log.warning("no OSM element with the code in ref or name for ETH buildings: %s", ", ".join(missing))
     return out
+
+
+_MS_POINT = re.compile(r"center\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]")
+_MS_ADDR = re.compile(r"html\s*:\s*'([^']+)'")
+
+
+def parse_mapsearch(html: str, code: str) -> Building | None:
+    """ETH's map page for one building: its point, if it lies on an ETH campus."""
+    m = _MS_POINT.search(html)
+    if not m:
+        return None
+    lat, lon = float(m.group(1)), float(m.group(2))
+    if not any(s <= lat <= n and w <= lon <= e for s, w, n, e in ETH_BBOXES.values()):
+        log.warning("ETH map puts %s at %.5f, %.5f, outside every ETH campus; ignored", code, lat, lon)
+        return None
+    a = _MS_ADDR.search(html)
+    return Building("ETH", code, round(lat, 6), round(lon, 6), "eth_mapsearch", a.group(1).strip() if a else None)
 
 
 def _valid(lat, lon) -> bool:
@@ -138,7 +180,7 @@ def fetch_uzh(http) -> list[Building]:
     return parse_uzh(http.get_json(UZH_URL))
 
 
-def fetch_eth(http, codes, urls=OVERPASS_URLS) -> list[Building]:
+def fetch_osm(http, codes, urls=OVERPASS_URLS) -> list[Building]:
     q = urllib.parse.urlencode({"data": overpass_query(codes)})
     errors = []
     for url in urls:
@@ -148,6 +190,35 @@ def fetch_eth(http, codes, urls=OVERPASS_URLS) -> list[Building]:
             log.warning("Overpass %s failed: %s", url, e)
             errors.append(f"{url}: {e}")
     raise RuntimeError("every Overpass instance failed: " + "; ".join(errors))
+
+
+def fetch_mapsearch(http, codes, pause: float = 1.0) -> list[Building]:
+    """One page per code, politely spaced; stops early when the site is down."""
+    out, missing, failed = [], [], 0
+    for i, code in enumerate(codes):
+        if failed >= MAPSEARCH_GIVE_UP:
+            log.warning("ETH map pages unreachable; skipping the remaining %d codes", len(codes) - i)
+            missing += codes[i:]
+            break
+        if i and pause:
+            time.sleep(pause)
+        try:
+            b = parse_mapsearch(http.get_text(MAPSEARCH_URL.format(code=urllib.parse.quote(code))), code)
+            failed = 0
+        except Exception as e:
+            log.warning("ETH map page for %s failed: %s", code, e)
+            b, failed = None, failed + 1
+        (out if b else missing).append(b or code)
+    if missing:
+        log.warning("no coordinates for ETH buildings: %s", ", ".join(missing))
+    return out
+
+
+def fetch_eth(http, codes, urls=OVERPASS_URLS, pause: float = 1.0) -> list[Building]:
+    """OSM outline centres; ETH's own map for the codes OSM doesn't name."""
+    osm = fetch_osm(http, codes, urls)
+    have = {b.code for b in osm}
+    return osm + fetch_mapsearch(http, [c for c in codes if c not in have], pause)
 
 
 # --- file and table ---
@@ -206,7 +277,8 @@ def eth_codes(conn: sqlite3.Connection | None) -> list[str]:
     return sorted(codes)
 
 
-def refresh(http, unis: tuple[str, ...], conn: sqlite3.Connection | None = None, path: Path = BUNDLED) -> dict[str, object]:
+def refresh(http, unis: tuple[str, ...], conn: sqlite3.Connection | None = None, path: Path = BUNDLED,
+            pause: float = 1.0) -> dict[str, object]:
     """Fetch the coordinates of `unis`, merge them into the buildings file and load it.
     Returns per university the number of buildings, or the error text."""
     data, res = load_file(path), {}
@@ -216,7 +288,8 @@ def refresh(http, unis: tuple[str, ...], conn: sqlite3.Connection | None = None,
                 data = merge(data, "UZH", fetch_uzh(http), UZH_URL)
             elif uni == "ETH":
                 codes = eth_codes(conn)
-                data = merge(data, "ETH", fetch_eth(http, codes), "OpenStreetMap (Overpass), ref=<code> in the ETH campus boxes")
+                data = merge(data, "ETH", fetch_eth(http, codes, pause=pause),
+                             "OpenStreetMap (Overpass), code in ref or name; else ETH map " + MAPSEARCH_URL)
             else:
                 raise ValueError(f"unknown university {uni}")
             res[uni] = data["sources"][uni]["count"]

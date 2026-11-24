@@ -66,7 +66,7 @@ def main() -> None:
     n.add_argument("--min", type=int, default=0, help="only rooms free for at least N minutes")
     n.add_argument("--building")
 
-    bl = sub.add_parser("buildings", help="refresh building coordinates (freerooms/buildings.json) from UZH and OpenStreetMap")
+    bl = sub.add_parser("buildings", help="refresh building coordinates (freerooms/buildings.json) from UZH, OpenStreetMap and ETH's building map")
     bl.add_argument("--unis", default="ETH,UZH", help="comma-separated: ETH (OpenStreetMap), UZH (UZH floor-plan API)")
     bl.add_argument("--out", default=str(geo.BUNDLED), help="the buildings file to update (default: the one shipped with the code)")
 

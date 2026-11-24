@@ -1,0 +1,13 @@
+{
+ "version": 0.6,
+ "generator": "Overpass answer of 2026-11-24, trimmed: real ETH elements that carry the code only in `name`",
+ "elements": [
+  {"type": "way", "id": 192151232, "center": {"lat": 47.3764269, "lon": 8.5478101}, "tags": {"building": "university", "name": "ETH Hauptgebäude (HG)"}},
+  {"type": "way", "id": 8805620, "center": {"lat": 47.4076803, "lon": 8.5077499}, "tags": {"building": "university", "name": "ETH HCI", "ref": "04323"}},
+  {"type": "way", "id": 1087301718, "center": {"lat": 47.5628969, "lon": 7.5809524}, "tags": {"building": "university", "name": "ETH Zürich BSS"}},
+  {"type": "node", "id": 3387706567, "lat": 47.37852, "lon": 8.5473, "tags": {"amenity": "university", "name": "ETH: NO"}},
+  {"type": "node", "id": 10558422052, "lat": 47.37877, "lon": 8.5468, "tags": {"amenity": "loading_dock", "name": "Anlieferung ETH NO Gebäude", "operator": "ETH Zürich"}},
+  {"type": "way", "id": 1486239286, "center": {"lat": 47.37836, "lon": 8.5493}, "tags": {"name": "ASVZ CAB Move & Relax"}},
+  {"type": "node", "id": 13986401212, "lat": 47.37866, "lon": 8.54844, "tags": {"amenity": "events_venue", "name": "CABinett"}}
+ ]
+}

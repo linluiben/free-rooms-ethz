@@ -1,13 +1,47 @@
 {
- "generated": "2026-11-23T19:01:56+00:00",
+ "generated": "2026-11-24T21:06:08+00:00",
  "sources": {
   "UZH": {
    "fetched": "2026-11-23T19:01:56+00:00",
    "from": "https://ziplaene-api.uzh.ch/v1/map/buildings",
    "count": 231
+  },
+  "ETH": {
+   "fetched": "2026-11-24T21:06:08+00:00",
+   "from": "OpenStreetMap (Overpass), code in ref or name; else ETH map http://www.mapsearch.ethz.ch/map.do?gebaeudeMap={code}&lang=de",
+   "count": 29
   }
  },
  "buildings": [
+  {"uni": "ETH", "code": "BSS", "lat": 47.562897, "lon": 7.580952, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "CAB", "lat": 47.37837, "lon": 8.548801, "source": "eth_mapsearch", "name": "Universitätstrasse 6, 8092 Zürich"},
+  {"uni": "ETH", "code": "CHN", "lat": 47.379377, "lon": 8.548462, "source": "eth_mapsearch", "name": "Universitätstrasse 16, 8092 Zürich"},
+  {"uni": "ETH", "code": "CLA", "lat": 47.377575, "lon": 8.546827, "source": "eth_mapsearch", "name": "Tannenstrasse 3, 8092 Zürich"},
+  {"uni": "ETH", "code": "ETA", "lat": 47.377951, "lon": 8.553109, "source": "eth_mapsearch", "name": "Gloriastrasse 35, 8092 Zürich"},
+  {"uni": "ETH", "code": "ETF", "lat": 47.377433, "lon": 8.552293, "source": "eth_mapsearch", "name": "Sternwartstrasse 7, 8092 Zürich"},
+  {"uni": "ETH", "code": "ETZ", "lat": 47.377666, "lon": 8.552768, "source": "eth_mapsearch", "name": "Gloriastrasse 35, 8092 Zürich"},
+  {"uni": "ETH", "code": "GLC", "lat": 47.377709, "lon": 8.553275, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "HCI", "lat": 47.40768, "lon": 8.50775, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "HCP", "lat": 47.40629, "lon": 8.50745, "source": "eth_mapsearch", "name": "Leopold-Ruzicka-Weg 4, 8093 Zürich"},
+  {"uni": "ETH", "code": "HG", "lat": 47.376427, "lon": 8.54781, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "HIL", "lat": 47.408739, "lon": 8.506854, "source": "eth_mapsearch", "name": "Stefano-Franscini-Platz 5, 8093 Zürich"},
+  {"uni": "ETH", "code": "HIT", "lat": 47.41034, "lon": 8.508127, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "HPH", "lat": 47.407587, "lon": 8.509237, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "HPK", "lat": 47.409216, "lon": 8.510883, "source": "eth_mapsearch", "name": "Otto-Stern-Weg 5, 8093 Zürich"},
+  {"uni": "ETH", "code": "HPL", "lat": 47.409096, "lon": 8.5114, "source": "eth_mapsearch", "name": "Otto-Stern-Weg 7, 8093 Zürich"},
+  {"uni": "ETH", "code": "HPR", "lat": 47.408014, "lon": 8.509737, "source": "eth_mapsearch", "name": "Joseph-von-Deschwanden-Platz 1, 8093 Zürich"},
+  {"uni": "ETH", "code": "HPT", "lat": 47.408777, "lon": 8.508579, "source": "eth_mapsearch", "name": "Auguste-Piccard-Hof 1, 8093 Zürich"},
+  {"uni": "ETH", "code": "HPV", "lat": 47.407398, "lon": 8.510144, "source": "eth_mapsearch", "name": "Robert-Gnehm-Weg 15, 8093 Zürich"},
+  {"uni": "ETH", "code": "HWC", "lat": 47.40723, "lon": 8.505961, "source": "eth_mapsearch", "name": "Paul-Feyerabend-Hof 3, 8049 Zürich"},
+  {"uni": "ETH", "code": "IFW", "lat": 47.380382, "lon": 8.544716, "source": "eth_mapsearch", "name": "Haldeneggsteig 4, 8092 Zürich"},
+  {"uni": "ETH", "code": "LEE", "lat": 47.378238, "lon": 8.545777, "source": "eth_mapsearch", "name": "Leonhardstrasse 21, 8092 Zürich"},
+  {"uni": "ETH", "code": "LFO", "lat": 47.377849, "lon": 8.550182, "source": "eth_mapsearch", "name": "Schmelzbergstrasse 9, 8092 Zürich"},
+  {"uni": "ETH", "code": "LFV", "lat": 47.377732, "lon": 8.549823, "source": "eth_mapsearch", "name": "Schmelzbergstrasse 7, 8092 Zürich"},
+  {"uni": "ETH", "code": "LFW", "lat": 47.377545, "lon": 8.549016, "source": "eth_mapsearch", "name": "Universitätstrasse 2, 8092 Zürich"},
+  {"uni": "ETH", "code": "ML", "lat": 47.377945, "lon": 8.547755, "source": "eth_mapsearch", "name": "Sonneggstrasse 3, 8092 Zürich"},
+  {"uni": "ETH", "code": "MM", "lat": 47.376206, "lon": 8.546656, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "NO", "lat": 47.378524, "lon": 8.547301, "source": "osm", "name": null},
+  {"uni": "ETH", "code": "RZ", "lat": 47.380412, "lon": 8.545091, "source": "eth_mapsearch", "name": "Clausiusstrasse 59, 8092 Zürich"},
   {"uni": "UZH", "code": "AFL", "lat": 47.410822, "lon": 8.540082, "source": "uzh_ziplaene", "name": "Cityport"},
   {"uni": "UZH", "code": "AND", "lat": 47.413167, "lon": 8.548717, "source": "uzh_ziplaene", "name": null},
   {"uni": "UZH", "code": "ATH", "lat": 47.373961, "lon": 8.557166, "source": "uzh_ziplaene", "name": null},
