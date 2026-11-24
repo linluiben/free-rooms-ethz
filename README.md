@@ -128,7 +128,7 @@ Sources:
 
 ### Nearest free place (location)
 
-The **Near** tab answers "where can I sit down now?" with one tap: the rooms that are free for the chosen duration and the study spaces that are open with at least 20 % of the seats free, nearest first. The nearest one gets the door-sign plate, with the walking time and the direction. In Rooms, Buildings and Study, **Nearest first** sorts the same way; within ~500 m of a campus it also picks that campus once.
+The **Near** tab answers "where can I sit down now?" with one tap: the rooms that are free for the chosen duration and the study spaces that are open with at least 20 % of the seats free, nearest first. The nearest one gets the door-sign plate, with the walking time and the direction. In Rooms, Buildings and Study, **Nearest first** sorts the same way. It also picks a campus once per visit: the campus of the nearest room or study place (each building is one point, the middle of its outline), if that is at most 500 m away. That pick is only for this visit; the saved filter stays the one you chose.
 
 - **Privacy:** the position comes from the browser (`navigator.geolocation`) and stays there. The server only sends building coordinates; the distance is worked out in the page. The position is never stored; the browser only remembers (`fr.geo`) that you allowed it, so the next visit doesn't need another tap.
 - **Walking time:** straight-line distance to the middle of the building × 1.25 for paths, at 80 m/min (4.8 km/h). Beyond 2.5 km the UI says "km away" instead. Same maths in [`freerooms/geo.py`](freerooms/geo.py) and the page.

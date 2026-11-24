@@ -300,7 +300,7 @@ function clickWhere(f, data, items) {
   if (data.uni) {
     f.uni = f.uni === data.uni ? "" : data.uni;
     if (f.campus && !items.some(x => matchWhere(x, f))) f.campus = "";
-  } else if (data.campus) f.campus = f.campus === data.campus ? "" : data.campus;
+  } else if (data.campus) { f.campus = f.campus === data.campus ? "" : data.campus; state.autoCampus = null; }
 }
 // Campus and university for a meta line, leaving out what the filter already says.
 const multiUni = items => new Set(items.map(x => x.uni)).size > 1;
@@ -425,7 +425,8 @@ const geo = {
 };
 const wantsGeo = () => state.view === "near" || state.nearSort;
 // Within ~500 m of a campus (its nearest room or study place), pick that campus once per page load,
-// so "Nearest first" starts on the campus the user is standing on.
+// so "Nearest first" starts on the campus the user is standing on. Only for this visit: what's saved
+// (fr.where) stays the user's own choice, see saveWhere.
 let campusPicked = false;
 function autoCampus() {
   if (campusPicked || !state.pos || state.view === "near") return;
@@ -433,9 +434,15 @@ function autoCampus() {
   const all = [...(state.data?.rooms || []), ...(state.places?.places || [])].filter(x => x.campus && dist(x) != null);
   const best = all.reduce((a, x) => (a && dist(a) <= dist(x) ? a : x), null);
   if (best && dist(best) <= NEAR_CAMPUS_M && state.where.campus !== canonCampus(best.campus)) {
-    state.where.campus = canonCampus(best.campus); store.set("where", state.where);
+    state.userCampus = state.where.campus;
+    state.where.campus = state.autoCampus = canonCampus(best.campus);
     if (state.data) fillBuildings();
   }
+}
+// Save the filter, but with the user's own campus while the automatic one is still in effect.
+function saveWhere() {
+  const auto = state.autoCampus && state.where.campus === state.autoCampus;
+  store.set("where", auto ? { ...state.where, campus: state.userCampus } : state.where);
 }
 // Nearest first, places without coordinates last (in their previous order).
 const byDist = (a, b) => (dist(a) ?? 1e12) - (dist(b) ?? 1e12);
@@ -1092,7 +1099,7 @@ $("#sfilter").addEventListener("click", e => {
   else if (x.uni || x.campus) clickWhere(f, x, state.places ? placeTree(state.places).top : []);
   else if (x.feat) f.feats = f.feats.includes(x.feat) ? f.feats.filter(k => k !== x.feat) : [...f.feats, x.feat];
   else if (x.nearsort) { toggleNearSort(); return; }
-  store.set("sp", { feats: f.feats }); store.set("where", state.where);
+  store.set("sp", { feats: f.feats }); saveWhere();
   if (state.data) fillBuildings();
   render();
 });
@@ -1104,8 +1111,9 @@ Object.assign(state, { nearAll: false });
 
 // The location state as a summary suffix (Rooms, Buildings and Study with "Nearest first" on).
 function geoNote() {
+  const picked = state.autoCampus && state.where.campus === state.autoCampus ? `, ${esc(state.autoCampus)} picked by your location` : "";
   if (state.geo === "ok" && state.pos) return state.pos.acc > 1000
-    ? `, <span class="warn">location only roughly known (±${(state.pos.acc / 1000).toFixed(1)} km)</span>` : ", nearest first";
+    ? `, <span class="warn">location only roughly known (±${(state.pos.acc / 1000).toFixed(1)} km)</span>` : ", nearest first" + picked;
   return { asking: ", finding your location…", denied: `, <span class="warn">location blocked, so not sorted by distance</span>`,
     error: `, <span class="warn">location unavailable</span>`, unsupported: `, <span class="warn">this browser can't share its location</span>` }[state.geo] || "";
 }
@@ -1169,7 +1177,7 @@ function renderNear() {
   const { known, unknown } = nearCandidates();
   const shown = state.nearAll ? known : known.slice(0, NEAR_SHOW);
   $("#summary").innerHTML = `<b>${known.length + unknown.length}</b> free place${known.length + unknown.length === 1 ? "" : "s"} right now` +
-    (state.min ? `, rooms for ${dur(state.min)}+` : "") + (!state.places ? ", loading study spaces…" : "") + geoNote().replace(", nearest first", "");
+    (state.min ? `, rooms for ${dur(state.min)}+` : "") + (!state.places ? ", loading study spaces…" : "") + (state.pos.acc > 1000 ? geoNote() : "");
   let html = shown.length ? nearHero(shown[0], at) + shown.slice(1).map(c => nearItem(c, at)).join("")
     : `<div class="empty">${unknown.length ? "Nothing free with a known location." : "Nothing free right now. Try a shorter duration."}</div>`;
   if (known.length > shown.length) html += `<p><button class="chip more" id="nearall">Show ${known.length - shown.length} more</button></p>`;
@@ -1211,7 +1219,7 @@ $("#at").addEventListener("change", e => {
 $("#site").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if (!b || !state.data) return;
   clickWhere(state.where, b.dataset, state.data.rooms);
-  store.set("where", state.where); fillBuildings(); render();
+  saveWhere(); fillBuildings(); render();
 });
 $("#building").addEventListener("change", e => { state.building = e.target.value; store.set("building", state.building); render(); });
 $("#dur").addEventListener("click", e => {
