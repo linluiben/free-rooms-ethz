@@ -173,6 +173,8 @@ Either way, it's worth telling them about type 13, since it affects their users 
 
 ### Phase 3: Location, "nearest free place" — medium
 
+**Status (2026-11-23):** built. Buildings table + `python -m freerooms buildings` (UZH floor-plan API, OSM/Overpass for ETH), the **Near** tab (one-tap answer), "Nearest first" in the other tabs, auto campus within 500 m, location only in the browser. ETH coordinates fetched 2026-11-24: 8 buildings from OSM names (no ETH outline carries its code as `ref`), the other 21 from ETH's building map (mapsearch.ethz.ch), which agrees with OSM within 5–35 m. Open: entrances, floor preference and the .ics mode are still "later".
+
 - Building coordinates:
   - UZH: `ziplaene-api.uzh.ch/v1/map/buildings` (lat/lon).
   - ETH: OSM building outlines (`ref=*` on ETH buildings) or the Google Maps links on `ethz.ch/en/utils/location.html`.

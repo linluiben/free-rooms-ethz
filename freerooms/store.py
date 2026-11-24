@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS occupancy (
     closed    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (place_id, ts)
 );
+-- Building coordinates (Phase 3), loaded from freerooms/buildings.json by geo.sync().
+CREATE TABLE IF NOT EXISTS buildings (
+    uni     TEXT NOT NULL,              -- 'ETH' | 'UZH' (both have a 'HIT')
+    code    TEXT NOT NULL,              -- e.g. 'HG', 'KOL'
+    lat     REAL NOT NULL,
+    lon     REAL NOT NULL,
+    name    TEXT,
+    source  TEXT,                       -- 'osm' | 'uzh_ziplaene'
+    PRIMARY KEY (uni, code)
+);
 """
 
 DEFAULT_MAX_AGE = 4 * 3600

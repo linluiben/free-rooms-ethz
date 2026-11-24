@@ -1,0 +1,13 @@
+{
+ "version": 0.6,
+ "generator": "hand-made in the shape of an Overpass 'out center tags' answer (coordinates illustrative)",
+ "elements": [
+  {"type": "way", "id": 1, "center": {"lat": 47.37640, "lon": 8.54810}, "tags": {"building": "university", "ref": "HG", "operator": "ETH Zürich"}},
+  {"type": "way", "id": 2, "center": {"lat": 47.37620, "lon": 8.54790}, "tags": {"building": "university", "ref": "HG", "operator": "ETH Zürich"}},
+  {"type": "node", "id": 3, "lat": 47.37700, "lon": 8.54700, "tags": {"entrance": "main", "ref": "HG"}},
+  {"type": "way", "id": 4, "center": {"lat": 47.40850, "lon": 8.50750}, "tags": {"building": "yes", "ref": "HCI"}},
+  {"type": "way", "id": 5, "center": {"lat": 47.37800, "lon": 8.54900}, "tags": {"building": "yes", "ref": "XYZ"}},
+  {"type": "way", "id": 6, "center": {"lat": 47.37840, "lon": 8.54870}, "tags": {"building": "yes", "ref": "CAB"}},
+  {"type": "way", "id": 7, "center": {"lat": 47.38500, "lon": 8.54870}, "tags": {"building": "yes", "ref": "CAB"}}
+ ]
+}

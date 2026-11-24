@@ -1,12 +1,13 @@
 """Tiny stdlib web server: static UI + JSON API reading from SQLite.
 
-GET /                         -> UI (with ?view=spaces the study places are inlined too)
+GET /                         -> UI (with ?view=spaces or ?view=near the study places are inlined too)
 GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
                                  404 for rooms of other universities (ETH has no details for them)
 GET /api/places               -> study places with their latest live occupancy sample
 GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
+GET /api/buildings            -> building coordinates [{uni, code, lat, lon, name, source}]
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
 """
@@ -22,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, live, places, store, uzh
+from . import fetch, geo, live, places, store, uzh
 from .api import ApiClient
 from .availability import TZ, building_hours, now_local, query
 
@@ -48,11 +49,27 @@ def simplify_detail(raw: dict) -> dict:
     return {"description": raw.get("description"), "info": raw.get("infoText"), "tabs": tabs}
 
 
+def with_coords(items: list[dict], where: dict[tuple[str, str], tuple[float, float]]) -> list[dict]:
+    """Give rooms and places their building's lat/lon. A place's own coordinates win (UZH libraries
+    carry theirs); without a known building both stay None and the UI says "distance unknown"."""
+    for x in items:
+        if x.get("lat") is None or x.get("lon") is None:
+            x["lat"], x["lon"] = where.get((x.get("uni"), x.get("building")), (None, None))
+    return items
+
+
 def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tuple[str, ...] = (),
                  rooms_sources: tuple[str, ...] = SOURCES):
     client = client or ApiClient()
     sources = (*rooms_sources, *live_sources)  # listed in health even before their first fetch
     detail_lock = threading.Lock()   # one upstream request at a time
+    conn = store.connect(db_path)
+    try:
+        n = geo.sync(conn)               # buildings.json -> table, when the file is newer
+        if n:
+            log.info("loaded coordinates of %d buildings", n)
+    finally:
+        conn.close()
     class Handler(BaseHTTPRequestHandler):
         server_version = "free-rooms-ethz"
 
@@ -78,7 +95,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     # Inline the current data so the first paint needs no extra request.
                     data = json.dumps(self._rooms({k: v for k, v in qs.items() if k == "at"}), ensure_ascii=False).replace("</", "<\\/")
                     html = (STATIC / "index.html").read_text().replace("/*INITIAL_DATA*/null", data, 1)
-                    if qs.get("view") == "spaces":
+                    if qs.get("view") in ("spaces", "near"):
                         data = json.dumps(self._places(), ensure_ascii=False).replace("</", "<\\/")
                         html = html.replace("/*INITIAL_PLACES*/null", data, 1)
                     self._send(200, html.encode(), "text/html; charset=utf-8")
@@ -89,6 +106,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 elif url.path == "/api/health":
                     h = self._health()  # 503 when stale, so plain uptime monitors notice
                     self._json(h, 503 if h["status"] == "stale" else 200)
+                elif url.path == "/api/buildings":
+                    self._json(self._buildings())
                 elif url.path == "/api/places":
                     self._json(self._places())
                 elif url.path == "/api/place":
@@ -121,7 +140,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     "now": now_local().isoformat(timespec="minutes"),
                     "last_fetch": store.get_meta(conn, "last_fetch"),
                     "health": store.health(conn, sources),
-                    "rooms": query(conn, t),
+                    "rooms": with_coords(query(conn, t), geo.coords(conn)),
                     "buildings": building_hours(conn, t),
                 }
             finally:
@@ -138,7 +157,15 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
             conn = store.connect(db_path)
             try:
                 return {"now": now_local().isoformat(timespec="minutes"),
-                        "health": store.health(conn, sources), "places": places.latest(conn)}
+                        "health": store.health(conn, sources),
+                        "places": with_coords(places.latest(conn), geo.coords(conn))}
+            finally:
+                conn.close()
+
+        def _buildings(self):
+            conn = store.connect(db_path)
+            try:
+                return [dict(r) for r in conn.execute("SELECT uni, code, lat, lon, name, source FROM buildings ORDER BY uni, code")]
             finally:
                 conn.close()
 
@@ -153,7 +180,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
             end = start + timedelta(days=1)   # wall-clock midnight; DST days are 23 or 25 h long
             conn = store.connect(db_path)
             try:
-                all_places = places.latest(conn)
+                all_places = with_coords(places.latest(conn), geo.coords(conn))
                 place = next((p for p in all_places if p["id"] == pid), None)
                 if place is None:
                     return None
