@@ -28,7 +28,9 @@ def now_lines(conn, t: datetime, min_minutes: int = 0, building: str | None = No
     out = [f"{len(free)} free rooms at {t:%a %d.%m. %H:%M}"]
     for r in free:
         until = r["until"][11:16] if r["until"] else "end of data"
-        flag = "  (often booked at short notice)" if r["unreliable"] else ""
+        why = r.get("unreliable_reason") or ""
+        kind = ("closed or booked" if "booking" in why else "closed") if "closure" in why else "booked"
+        flag = f"  (often {kind} at short notice)" if r["unreliable"] else ""
         out.append(f"  {r['id']:14} until {until}  ({r['minutes']} min)  {r['seats'] or '?':>4} seats  {r['type']}{flag}")
     unknown = sum(r["state"] == "unknown" for r in rooms)
     if unknown:

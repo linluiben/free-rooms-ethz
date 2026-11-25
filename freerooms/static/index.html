@@ -510,7 +510,10 @@ function card(r, at, unis) {
 // that isn't flagged is about as good: in the Rooms view the next one in the list, in Near (or with
 // Nearest first) the nearest one at most HERO_SLACK_M farther away.
 const HERO_SLACK_M = 250;
-const flagNote = r => r.unreliable ? `, <span class="warn" title="${esc(r.unreliable_reason || "")}">often booked at short notice</span>` : "";
+// "often booked / closed / closed or booked at short notice", from what the reason counts
+const flagText = r => { const why = r.unreliable_reason || "", b = /booking/.test(why), c = /closure/.test(why);
+  return `often ${c ? (b ? "closed or booked" : "closed") : "booked"} at short notice`; };
+const flagNote = r => r.unreliable ? `, <span class="warn" title="${esc(r.unreliable_reason || "")}">${flagText(r)}</span>` : "";
 function heroFirst(list, flagged, d = () => null) {
   if (!state.reliable || !list.length || !flagged(list[0])) return list;
   const d0 = d(list[0]);
@@ -671,7 +674,7 @@ function renderPanel() {
     <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
     ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
     ${hours ? `<div class="meta">Building ${esc(r.building)} ${hours}</div>` : ""}
-    ${r.unreliable ? `<div class="meta"><span class="warn">Often booked at short notice</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken or closed although it shows as free.</div>` : ""}
+    ${r.unreliable ? `<div class="meta"><span class="warn">${flagText(r)[0].toUpperCase() + flagText(r).slice(1)}</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken or closed although it shows as free.</div>` : ""}
     ${dist(r) != null ? `<div class="meta"><span class="walk">${esc(walkText(dist(r), true))}</span> ${dist(r) >= 40 ? heading(state.pos, r) : ""}, to the middle of ${esc(r.building)}</div>` : ""}
     <h3>${esc(day)}</h3>
     ${timelineBar(r.timeline, at, true)}
