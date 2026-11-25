@@ -1,12 +1,17 @@
 """Tiny stdlib web server: static UI + JSON API reading from SQLite.
 
 GET /                         -> UI (with ?view=spaces or ?view=near the study places are inlined too)
-GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
+GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time), each with
+                                 `unreliable` and `unreliable_reason` (frequent short-notice bookings)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
-GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
+GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH,
+                                 plus `unreliable` and `unreliable_reason`;
                                  404 for rooms of other universities (ETH has no details for them)
-GET /api/places               -> study places with their latest live occupancy sample
-GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
+GET /api/places               -> study places with their latest live occupancy sample (+ usual_now);
+                                 a library without samples of its own gets its floors' sum
+GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples and
+                                 the usual curve of that weekday (popular.usual_day; summed over
+                                 the floors for such a library)
 GET /api/buildings            -> building coordinates [{uni, code, lat, lon, name, source}]
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
@@ -23,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, geo, live, places, store, uzh
+from . import fetch, geo, live, places, popular, reliability, store, uzh
 from .api import ApiClient
 from .availability import TZ, building_hours, now_local, query
 
@@ -63,6 +68,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
     client = client or ApiClient()
     sources = (*rooms_sources, *live_sources)  # listed in health even before their first fetch
     detail_lock = threading.Lock()   # one upstream request at a time
+    usual_cache: dict = {}           # popular.slot_key -> usual_now result (past samples don't change)
     conn = store.connect(db_path)
     try:
         n = geo.sync(conn)               # buildings.json -> table, when the file is newer
@@ -140,7 +146,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     "now": now_local().isoformat(timespec="minutes"),
                     "last_fetch": store.get_meta(conn, "last_fetch"),
                     "health": store.health(conn, sources),
-                    "rooms": with_coords(query(conn, t), geo.coords(conn)),
+                    "rooms": reliability.annotate(with_coords(query(conn, t), geo.coords(conn)),
+                                                  reliability.scores(conn)),
                     "buildings": building_hours(conn, t),
                 }
             finally:
@@ -156,9 +163,24 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
         def _places(self):
             conn = store.connect(db_path)
             try:
+                all_places = with_coords(places.latest(conn), geo.coords(conn))
+                ids = [p["id"] for p in all_places]
+                key = (popular.slot_key(), tuple(ids))
+                usual = usual_cache.get(key)
+                if usual is None:
+                    usual = popular.usual_now(conn, ids)
+                    usual_cache.clear()
+                    usual_cache[key] = usual
+                for p in all_places:
+                    p["usual_now"] = usual.get(p["id"])
+                by_id = {p["id"]: p for p in all_places}
+                for pid, kids in places.summed_parents(all_places).items():
+                    weights = [places.floor_weight(k) for k in kids]
+                    if all(weights):   # a library made of floors: their usual values, seat-weighted
+                        by_id[pid]["usual_now"] = popular.sum_usual_now([k["usual_now"] for k in kids], weights)
                 return {"now": now_local().isoformat(timespec="minutes"),
                         "health": store.health(conn, sources),
-                        "places": with_coords(places.latest(conn), geo.coords(conn))}
+                        "places": all_places}
             finally:
                 conn.close()
 
@@ -171,7 +193,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
 
         def _place(self, qs) -> dict | None:
             """One place as in /api/places plus its samples for a Zurich day; its sub-places in `kids`.
-            Each sample also gets `local` (naive Zurich time). None for an id that isn't in `places`."""
+            Each sample also gets `local` (naive Zurich time), and each place `usual`, the usual
+            curve of that weekday (see popular.usual_day). None for an id that isn't in `places`."""
             pid = qs.get("id")
             if not pid:
                 raise ValueError("missing id")
@@ -185,12 +208,17 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 if place is None:
                     return None
                 kids = [p for p in all_places if p["parent_id"] == pid]
-                samples = places.samples_between(conn, [pid, *(k["id"] for k in kids)],
-                                                 places.utc_iso(start), places.utc_iso(end))
+                ids = [pid, *(k["id"] for k in kids)]
+                samples = places.samples_between(conn, ids, places.utc_iso(start), places.utc_iso(end))
+                usual = popular.usual_day(conn, ids, day)
             finally:
                 conn.close()
+            weights = [places.floor_weight(k) for k in kids]
+            if pid in places.summed_parents([place, *kids]) and all(weights):
+                usual[pid] = popular.sum_usual_day([usual[k["id"]] for k in kids], weights)
             for p in (place, *kids):
                 p["samples"] = samples[p["id"]]
+                p["usual"] = usual[p["id"]]
                 for s in p["samples"]:
                     s["local"] = datetime.fromisoformat(s["ts"]).astimezone(TZ).strftime("%Y-%m-%dT%H:%M")
             return {"now": now_local().isoformat(timespec="minutes"), "date": day.isoformat(),
@@ -224,21 +252,28 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 row = conn.execute("SELECT fetched_at, json FROM room_details WHERE room_id=?", (rid,)).fetchone()
                 now = datetime.now(timezone.utc)
                 if row and now - datetime.fromisoformat(row["fetched_at"]) < DETAIL_TTL:
-                    return row["json"]
+                    return self._with_reliability(conn, rid, row["json"])
                 try:
                     with detail_lock:
                         body = json.dumps(simplify_detail(client.room_detail(rid)), ensure_ascii=False)
                 except Exception:
                     if row:   # stale beats nothing
                         log.warning("room detail refresh failed for %s, serving cached copy", rid)
-                        return row["json"]
+                        return self._with_reliability(conn, rid, row["json"])
                     raise
                 conn.execute("INSERT OR REPLACE INTO room_details(room_id, fetched_at, json) VALUES (?,?,?)",
                              (rid, now.isoformat(timespec="seconds"), body))
                 conn.commit()
-                return body
+                return self._with_reliability(conn, rid, body)
             finally:
                 conn.close()
+
+        @staticmethod
+        def _with_reliability(conn, rid: str, body: str) -> str:
+            """The cached detail JSON plus our own short-notice flag (not cached: it changes per fetch)."""
+            s = reliability.scores(conn).get(rid) or {}
+            d = {**json.loads(body), "unreliable": bool(s.get("unreliable")), "unreliable_reason": s.get("reason")}
+            return json.dumps(d, ensure_ascii=False)
 
     return Handler
 

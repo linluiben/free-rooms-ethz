@@ -107,21 +107,86 @@ def add_samples(conn: sqlite3.Connection, samples: list[Sample]) -> int:
     return conn.total_changes - before
 
 
+# Our own trend, for samples without one from the source (UZH libraries, ICBP floors). We compare the
+# latest pct with the newest sample that is 15-30 min older; nothing in that window (a gap) -> no trend.
+TREND_MIN_S, TREND_MAX_S = 15 * 60, 30 * 60
+# A change below 5 % of capacity counts as steady (ETH says its trend reacts to about 5 %).
+TREND_DEAD_BAND = 5.0
+# Sources that only report pct in steps: a change needs at least one step, seen in the last two samples.
+PCT_STEP = {"uzh_ub": 5.0}
+
+
+def computed_trend(series: list[dict], step: float | None = None) -> int | None:
+    """-1 / 0 / 1 from a place's samples (oldest first, the latest last; dicts with ts, pct, closed).
+
+    None when the latest sample has no number or is closed, when there is no sample 15-30 min
+    before it, or when a sample from that one on is closed or has no number (no trend across
+    a closing or a no-data stretch). With `step` (rounded source), the change must be at least one
+    step and the sample before the latest must show it too; otherwise it counts as steady.
+    """
+    if not series:
+        return None
+    last = series[-1]
+    if last["closed"] or last["pct"] is None:
+        return None
+    t_last = datetime.fromisoformat(last["ts"])
+    ref = None
+    for i in range(len(series) - 2, -1, -1):
+        age = (t_last - datetime.fromisoformat(series[i]["ts"])).total_seconds()
+        if age >= TREND_MIN_S:
+            ref = i if age <= TREND_MAX_S else None
+            break
+    if ref is None:
+        return None
+    path = series[ref:]
+    if any(s["closed"] or s["pct"] is None for s in path):
+        return None
+    band = max(TREND_DEAD_BAND, step or 0.0)
+    delta = last["pct"] - path[0]["pct"]
+    if abs(delta) < band:
+        return 0
+    sign = 1 if delta > 0 else -1
+    if step:
+        prev = series[-2]
+        if prev is path[0] or (prev["pct"] - path[0]["pct"]) * sign < band:
+            return 0
+    return sign
+
+
 def latest(conn: sqlite3.Connection, now: datetime | None = None) -> list[dict]:
-    """Every place with its most recent sample (or None) and that sample's age in seconds."""
+    """Every place with its most recent sample (or None) and that sample's age in seconds.
+
+    `latest.trend` is the source's trend if it sent one (`trend_source` 'source'), else our own
+    from the last 30 min of samples (`computed_trend`, 'computed'), else None. One query: each
+    place joined with its samples from the 30 min up to its newest one. A parent without samples of
+    its own gets the sum of its floors (`sum_floors`, marked by `floors`), or None.
+    """
     now = now or datetime.now(timezone.utc)
     rows = conn.execute(
-        """SELECT p.*, o.ts, o.status, o.pct, o.count, o.max, o.trend, o.closed
-           FROM places p LEFT JOIN occupancy o ON o.place_id = p.id
-             AND o.ts = (SELECT MAX(ts) FROM occupancy WHERE place_id = p.id)
-           ORDER BY p.uni, p.campus, p.name""").fetchall()
-    out = []
+        f"""SELECT p.*, o.ts, o.status, o.pct, o.count, o.max, o.trend, o.closed
+           FROM places p
+           LEFT JOIN (SELECT place_id, MAX(ts) AS last FROM occupancy GROUP BY place_id) m ON m.place_id = p.id
+           LEFT JOIN occupancy o ON o.place_id = p.id AND o.ts <= m.last
+             AND o.ts >= strftime('%Y-%m-%dT%H:%M:%S+00:00', m.last, '-{TREND_MAX_S} seconds')
+           ORDER BY p.uni, p.campus, p.name, p.id, o.ts""").fetchall()
+    groups: dict[str, list] = {}
     for r in rows:
+        groups.setdefault(r["id"], []).append(r)
+    out, recent = [], {}
+    for rs in groups.values():
+        r = rs[-1]
         sample = None
         if r["ts"]:
+            series = [{"ts": x["ts"], "pct": x["pct"], "count": x["count"], "max": x["max"], "closed": bool(x["closed"])}
+                      for x in rs]
+            recent[r["id"]] = series
             sample = {k: r[k] for k in ("ts", "status", "pct", "count", "max", "trend")}
             sample["closed"] = bool(r["closed"])
             sample["age_s"] = int((now - datetime.fromisoformat(r["ts"])).total_seconds())
+            sample["trend_source"] = "source" if r["trend"] is not None else None
+            if r["trend"] is None:
+                sample["trend"] = computed_trend(series, PCT_STEP.get(r["source"]))
+                sample["trend_source"] = None if sample["trend"] is None else "computed"
         out.append({
             "id": r["id"], "parent_id": r["parent_id"], "uni": r["uni"], "campus": r["campus"],
             "building": r["building"], "name": r["name"], "seats": r["seats"],
@@ -129,7 +194,81 @@ def latest(conn: sqlite3.Connection, now: datetime | None = None) -> list[dict]:
             "features": json.loads(r["features_json"]) if r["features_json"] else [],
             "lat": r["lat"], "lon": r["lon"], "source": r["source"], "url": r["url"], "note": r["note"], "latest": sample,
         })
+    by_id = {p["id"]: p for p in out}
+    for pid, kids in summed_parents(out).items():
+        by_id[pid]["latest"] = sum_floors([(k, recent.get(k["id"], [])) for k in kids], now)
     return out
+
+
+# A library made of floors, without samples of its own, gets the sum of its floors' samples.
+# A floor's sample older than this isn't summed (same as the UI's STALE_S: shown as stale there).
+STALE_S = 15 * 60
+
+
+def summed_parents(all_places: list[dict]) -> dict[str, list[dict]]:
+    """Parents whose numbers come from their floors: {parent id: floors}. A parent counts when it has
+    floors and no sample of its own (`latest` None, or already the floors' sum, see sum_floors)."""
+    kids: dict[str, list[dict]] = {}
+    for p in all_places:
+        if p["parent_id"]:
+            kids.setdefault(p["parent_id"], []).append(p)
+    return {p["id"]: kids[p["id"]] for p in all_places
+            if p["id"] in kids and (p["latest"] is None or "floors" in p["latest"])}
+
+
+def floor_weight(place: dict) -> float | None:
+    """A floor's capacity for weighting: its seats, else the capacity its latest sample reports."""
+    return place["seats"] or (place["latest"] or {}).get("max") or None
+
+
+def _taken(s: dict, seats: float | None) -> tuple[float, float] | None:
+    """(people, capacity) of one open sample: count of max, else pct of the seats; None without a number."""
+    if s["closed"]:
+        return None
+    if s["count"] is not None and s["max"]:
+        return s["count"], s["max"]
+    if s["pct"] is not None and seats:
+        return s["pct"] * seats / 100, seats
+    return None
+
+
+def sum_floors(floors: list[tuple[dict, list[dict]]], now: datetime) -> dict | None:
+    """The parent's sample from its floors (each: its place dict and its samples of the last 30 min,
+    oldest first). As the UI did before: only open floors with a number and a sample at most STALE_S
+    old; people summed over capacity (count/max, else pct of the floor's seats). None when no floor
+    qualifies. `floors` lists the floor ids summed; `ts` and `age_s` are those of the oldest one.
+
+    The trend is computed_trend on the summed series: at each time one of these floors sampled,
+    every floor counts with its newest sample up to then; if one had none yet, or no number, that
+    time has no number. So the dead band applies to the whole library, not floor by floor.
+    """
+    use = []
+    for kid, series in floors:
+        if series and _taken(series[-1], kid["seats"]) and \
+                (now - datetime.fromisoformat(series[-1]["ts"])).total_seconds() <= STALE_S:
+            use.append((kid, series))
+    if not use:
+        return None
+    summed = []
+    for t in sorted({s["ts"] for _, series in use for s in series}):
+        people, cap = 0.0, 0.0
+        for kid, series in use:
+            last = next((s for s in reversed(series) if s["ts"] <= t), None)
+            v = last and _taken(last, kid["seats"])
+            if not v:
+                people = None
+                break
+            people, cap = people + v[0], cap + v[1]
+        summed.append({"ts": t, "pct": None if people is None else people / cap * 100, "closed": False})
+    steps = [PCT_STEP[k["source"]] for k, _ in use if k["source"] in PCT_STEP]
+    trend = computed_trend(summed, max(steps) if steps else None)
+    lasts = [_taken(series[-1], kid["seats"]) for kid, series in use]
+    count, cap = sum(v[0] for v in lasts), sum(v[1] for v in lasts)
+    oldest = min(series[-1]["ts"] for _, series in use)
+    pct = round(count / cap * 100, 1)
+    return {"ts": oldest, "status": status_for(pct), "pct": pct, "count": round(count, 2), "max": round(cap),
+            "trend": trend, "closed": False, "age_s": int((now - datetime.fromisoformat(oldest)).total_seconds()),
+            "trend_source": None if trend is None else "computed", "floors": [k["id"] for k, _ in use]}
 
 
 def samples_between(conn: sqlite3.Connection, place_ids: list[str], start: str, end: str) -> dict[str, list[dict]]:

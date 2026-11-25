@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from . import api, fetch, geo, live, store, web
+from . import api, fetch, geo, live, reliability, store, web
 from .api import ApiClient
 from .http import Http
 from .availability import now_local, query
@@ -16,6 +16,26 @@ from .availability import now_local, query
 
 def _csv(s: str | None) -> tuple[str, ...] | None:
     return tuple(x.strip() for x in s.split(",") if x.strip()) if s else None
+
+
+def now_lines(conn, t: datetime, min_minutes: int = 0, building: str | None = None) -> list[str]:
+    """The output of `now`: free rooms at local time t, longest free first. Rooms often booked at
+    short notice (reliability.py) are marked."""
+    rooms = reliability.annotate(query(conn, t), reliability.scores(conn))
+    free = [r for r in rooms if r["state"] == "free" and (10**6 if r["minutes"] is None else r["minutes"]) >= min_minutes
+            and (not building or r["building"] == building)]
+    free.sort(key=lambda r: -(10**6 if r["minutes"] is None else r["minutes"]))
+    out = [f"{len(free)} free rooms at {t:%a %d.%m. %H:%M}"]
+    for r in free:
+        until = r["until"][11:16] if r["until"] else "end of data"
+        why = r.get("unreliable_reason") or ""
+        kind = ("closed or booked" if "booking" in why else "closed") if "closure" in why else "booked"
+        flag = f"  (often {kind} at short notice)" if r["unreliable"] else ""
+        out.append(f"  {r['id']:14} until {until}  ({r['minutes']} min)  {r['seats'] or '?':>4} seats  {r['type']}{flag}")
+    unknown = sum(r["state"] == "unknown" for r in rooms)
+    if unknown:
+        out.append(f"({unknown} rooms with no data shown as unknown)")
+    return out
 
 
 def main() -> None:
@@ -112,17 +132,7 @@ def main() -> None:
         raise SystemExit(1 if any(isinstance(n, str) for n in res.values()) else 0)
     elif a.cmd == "now":
         t = datetime.fromisoformat(a.at) if a.at else now_local()
-        rooms = query(store.connect(a.db), t)
-        free = [r for r in rooms if r["state"] == "free" and (10**6 if r["minutes"] is None else r["minutes"]) >= a.min
-                and (not a.building or r["building"] == a.building)]
-        free.sort(key=lambda r: -(10**6 if r["minutes"] is None else r["minutes"]))
-        print(f"{len(free)} free rooms at {t:%a %d.%m. %H:%M}")
-        for r in free:
-            until = r["until"][11:16] if r["until"] else "end of data"
-            print(f"  {r['id']:14} until {until}  ({r['minutes']} min)  {r['seats'] or '?':>4} seats  {r['type']}")
-        unknown = sum(r["state"] == "unknown" for r in rooms)
-        if unknown:
-            print(f"({unknown} rooms with no data shown as unknown)")
+        print("\n".join(now_lines(store.connect(a.db), t, a.min, a.building)))
 
 
 if __name__ == "__main__":

@@ -185,6 +185,8 @@ Either way, it's worth telling them about type 13, since it affects their users 
 
 ### Phase 4: History, forecasts, reliability — medium
 
+**Status (2026-11-25):** popular times built (#19): `popular.py`, 30-min Zurich slots, median of weekly medians over the last 6 same weekdays, shown from 3 weeks with data; "usually fills up by" when the usual value reaches 90 %. Our own trend arrow (#29) from the samples of the last 15–30 min, where the source sends none. Short-notice bookings (#20): `booking_changes`, `reliability.py`, flag in `/api/rooms` and `/api/roomdetail`, note and hero down-ranking in the UI. Still open: "often locked" (waits for the feedback button, #21) and an exam-session-aware prediction.
+
 - "Usually busy at this time" per place (median of the same weekday and time slot over the last N weeks), shown as Google-Maps-style popular times.
 - For rooms: flag rooms that often get short-notice bookings (diff successive fetches), and rooms that are often locked (from user feedback, Phase 5).
 - Prediction: "the Lesesaal usually fills up by 10:00 in the exam session".

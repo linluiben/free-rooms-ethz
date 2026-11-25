@@ -164,6 +164,7 @@
   .subs { margin-top: 8px; padding-top: 2px; }
   .sub { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; padding: 3px 0; }
   .sub .status { font-size: 14px; }
+  .scard .usual-now { color: var(--faded); font-size: 14px; font-weight: 500; white-space: nowrap; margin-left: 6px; }
   .srclink { font-size: 14px; white-space: nowrap; }
   .bigocc { font-size: 22px; font-weight: 700; margin-top: 12px; }
   .bigocc .dot { width: 16px; height: 16px; }
@@ -173,6 +174,8 @@
   .curve .pt { fill: var(--ink); } .curve .off { fill: var(--faded); opacity: .25; }
   .curve .grid { stroke: var(--faded); stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; } .curve .base { stroke: var(--ink); }
   .curve .now { stroke: var(--red); stroke-width: 1.5; } .curve text { fill: var(--faded); font-size: 10px; }
+  /* Popular times: the usual share taken as faint bars behind today's curve, each with a top edge. */
+  .curve .usual { fill: var(--faded); opacity: .16; } .curve .utop { stroke: var(--faded); stroke-width: 1.5; }
   .psub { padding: 6px 0; }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .tags span { border: 1.5px solid var(--ink); border-radius: 3px; padding: 3px 9px 2px; font-size: 14px; }
@@ -233,7 +236,8 @@
   <div class="summary" id="summary">Loading…</div>
   <div id="list"></div>
   <footer id="footer"></footer>
-  <p class="prefs"><button class="chip" id="cb" aria-pressed="false">Colour-blind safe colours</button></p>
+  <p class="prefs"><button class="chip" id="cb" aria-pressed="false">Colour-blind safe colours</button>
+    <button class="chip" id="rel" aria-pressed="false" title="Don't put rooms often booked at short notice on the door sign while another room is about as good">Prefer reliable rooms</button></p>
 </main>
 <div id="shade"></div>
 <aside id="panel" role="dialog" aria-modal="false" aria-label="Room details" tabindex="-1"></aside>
@@ -273,6 +277,7 @@ const state = {
   place: null,                                   // id of the study place shown in the panel (never both)
   pushed: false,                                // did we add a history entry for the panel?
   nearSort: store.get("nearsort", false),        // Rooms, Buildings, Study: nearest first
+  reliable: store.get("reliable", false),        // "Prefer reliable rooms": down-rank flagged rooms (heroFirst)
   pos: null,                                     // { lat, lon, acc } from the browser, never stored or sent
   geo: "off",                                    // "off" | "asking" | "ok" | "denied" | "error" | "unsupported"
 };
@@ -492,7 +497,7 @@ function card(r, at, unis) {
   const soon = r.state === "free" && r.minutes != null && r.minutes < state.min;
   const meta = [places(r), typeName(r), whereText(r, state.where, unis)].filter(Boolean).join(", ");
   const walk = state.pos ? walkHTML(r) : "";
-  const warn = r.state !== "unknown" && !r.hours_known ? `, <span class="warn">opening hours unknown</span>` : "";
+  const warn = (r.state !== "unknown" && !r.hours_known ? `, <span class="warn">opening hours unknown</span>` : "") + flagNote(r);
   const now = r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : "";
   return `<button class="card ${r.state}${soon ? " soon" : ""}${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
     <div class="top"><span class="name">${esc(r.id)}</span><span class="status">${statusText(r, at)}</span></div>
@@ -500,11 +505,27 @@ function card(r, at, unis) {
     ${timelineBar(r.timeline, at, false)}</button>`;
 }
 
+// Rooms that often get booked at short notice or closed (server: reliability.py) always get a small note.
+// With "Prefer reliable rooms" on (off by default) they also don't get the door-sign plate while a room
+// that isn't flagged is about as good: in the Rooms view the next one in the list, in Near (or with
+// Nearest first) the nearest one at most HERO_SLACK_M farther away.
+const HERO_SLACK_M = 250;
+// "often booked / closed / closed or booked at short notice", from what the reason counts
+const flagText = r => { const why = r.unreliable_reason || "", b = /booking/.test(why), c = /closure/.test(why);
+  return `often ${c ? (b ? "closed or booked" : "closed") : "booked"} at short notice`; };
+const flagNote = r => r.unreliable ? `, <span class="warn" title="${esc(r.unreliable_reason || "")}">${flagText(r)}</span>` : "";
+function heroFirst(list, flagged, d = () => null) {
+  if (!state.reliable || !list.length || !flagged(list[0])) return list;
+  const d0 = d(list[0]);
+  const i = list.findIndex(x => !flagged(x) && (d0 == null || d(x) == null || d(x) - d0 <= HERO_SLACK_M));
+  return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
+}
+
 // The longest-free room, set as its own door sign at the top of the Rooms view.
 function heroCard(r, at, unis, kind = nearOn() ? "Nearest free room" : null) {
   const meta = [r.minutes != null ? `${dur(r.minutes)} free` : null, places(r), typeName(r), whereText(r, state.where, unis),
     r.next_kind === "closed" ? "then the building closes" : null].filter(Boolean).join(", ");
-  const warn = r.hours_known ? "" : `, <span class="warn">opening hours unknown</span>`;
+  const warn = (r.hours_known ? "" : `, <span class="warn">opening hours unknown</span>`) + flagNote(r);
   const d = state.pos ? dist(r) : null;
   return `<button class="card sign free${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
     ${kind ? `<div class="kind">${esc(kind)}</div>` : ""}
@@ -524,7 +545,8 @@ function renderRooms(d, at) {
   // Longest free first; rooms without opening-hours data go last (their "free until" is unreliable).
   const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) ||
     ((b.seats || b.workplaces || 0) - (a.seats || a.workplaces || 0)) || natural(a.id, b.id);
-  const free = rooms.filter(goodFor).sort(nearOn() ? (a, b) => byDist(a, b) || byLen(a, b) : byLen);
+  const free = heroFirst(rooms.filter(goodFor).sort(nearOn() ? (a, b) => byDist(a, b) || byLen(a, b) : byLen),
+    r => r.unreliable, r => nearOn() ? dist(r) : null);
   const short = rooms.filter(r => r.state === "free" && !goodFor(r)).sort(byLen);
   const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until) || natural(a.id, b.id)).slice(0, 8);
   const unis = multiUni(rooms), c = r => card(r, at, unis);
@@ -652,6 +674,7 @@ function renderPanel() {
     <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
     ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
     ${hours ? `<div class="meta">Building ${esc(r.building)} ${hours}</div>` : ""}
+    ${r.unreliable ? `<div class="meta"><span class="warn">${flagText(r)[0].toUpperCase() + flagText(r).slice(1)}</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken or closed although it shows as free.</div>` : ""}
     ${dist(r) != null ? `<div class="meta"><span class="walk">${esc(walkText(dist(r), true))}</span> ${dist(r) >= 40 ? heading(state.pos, r) : ""}, to the middle of ${esc(r.building)}</div>` : ""}
     <h3>${esc(day)}</h3>
     ${timelineBar(r.timeline, at, true)}
@@ -844,10 +867,21 @@ function occ(s, seats, source) {
   const text = free == null ? word : `${step > 1 ? "~" : ""}${free}% free` + (n ? ` <small>of ${esc(n)}</small>` : "");
   if (s.age_s > STALE_S)
     return { cls: "unknown", text: `<span class="warn">${text}, ${fmtAge(s.age_s)} ago</span>`, rank: 1, free };
-  const tr = { 1: ["↗", "filling up"], "-1": ["↘", "emptying"], 0: ["→", "steady"] }[s.trend];
+  const tr = { 1: ["↗", "filling up"], "-1": ["↘", "emptying"], 0: ["→", "steady"] }[s.trend]?.slice();
+  if (tr && s.trend_source === "computed") tr[1] += " (last 15–30 min)";   // our own trend (places.computed_trend)
   return { cls: st, text: text + (tr ? ` <span class="trend" title="${tr[1]}" aria-label="${tr[1]}">${tr[0]}</span>` : ""), rank: 0, free };
 }
-// A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh samples.
+// Popular times on the cards: the usual share free in this half hour (usual_now from api/places), next to
+// the live value and in the same terms. Nothing when there isn't enough history (usual_now null).
+function usualNow(p) {
+  const u = p.usual_now;
+  if (!u) return "";
+  const step = PCT_STEP[p.source] || 1, free = Math.max(0, Math.min(100, Math.round((100 - u.pct) / step) * step));
+  const tip = `Usually ${Math.round(u.pct)} % taken at ${u.slot} on this weekday (median of ${u.weeks} weeks)`;
+  return ` <span class="usual-now" title="${esc(tip)}">usually ${step > 1 ? "~" : ""}${free}% free</span>`;
+}
+// A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh
+// samples. The server does this now (places.sum_floors, with a trend); this stays as a fallback.
 function aggregate(kids) {
   const ss = kids.map(k => k.latest).filter(s => s && !s.closed && s.count != null && s.max && s.age_s <= STALE_S);
   if (!ss.length) return null;
@@ -864,7 +898,7 @@ function spaceCard(r, closed) {
   const subs = p.kids.length ? `<div class="subs">${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
     return `<div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>`; }).join("")}</div>` : "";
   return `<div class="card scard${closed ? " soon" : ""}${state.place === p.id ? " sel" : ""}" data-id="${esc(p.id)}" role="button" tabindex="0">
-    <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}</span></div>
+    <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}${usualNow(p)}</span></div>
     <div class="meta">${walk}${walk ? ", " : ""}${esc([where, tags.join(", ")].filter(Boolean).join(", "))}${p.url ? `, <a class="srclink" href="${esc(p.url)}" target="_blank" rel="noopener">Info ↗</a>` : ""}</div>
     ${h.line ? `<div class="meta">${h.line}</div>` : ""}${p.note ? `<div class="meta warn">${esc(p.note)}</div>` : ""}${subs}</div>`;
 }
@@ -942,12 +976,18 @@ function loadPlaceDay(id) {
 // One day of samples as an inline SVG area chart of the share occupied, 06:00–24:00 local time.
 // A numeric sample counts until the next sample, but at most STALE_S; a no-data sample leaves a gap
 // until the next one (runs of them are stored once); a closed one is shaded until the next one.
-function curveSVG(samples, day, h = 64) {
+// `usual` (popular times, from api/place) adds one faint bar per slot behind the curve.
+function curveSVG(samples, day, h = 64, usual = null) {
   const W = 360, top = 4, x = m => Math.max(0, Math.min(W, (m - CURVE_START * 60) / ((CURVE_END - CURVE_START) * 60) * W));
   const y = pct => top + (h - top) * (1 - Math.max(0, Math.min(100, pct)) / 100);
   const today = day.date === day.now.slice(0, 10), nowMin = today ? toMin(hm(day.now)) : 1440;
   const ss = samples.map(s => ({ ...s, m: toMin(hm(s.local)) }));
   let svg = `<line class="grid" x1="0" x2="${W}" y1="${y(70)}" y2="${y(70)}"/><line class="grid" x1="0" x2="${W}" y1="${y(90)}" y2="${y(90)}"/>`;
+  for (const u of usual?.slots || []) {
+    const a = x(toMin(u.start)), b = x(toMin(u.start) + usual.slot_min) - 1.5;
+    if (b > a) svg += `<rect class="usual" x="${a.toFixed(1)}" y="${y(u.pct).toFixed(1)}" width="${(b - a).toFixed(1)}" height="${(h - y(u.pct)).toFixed(1)}"/>` +
+      `<line class="utop" x1="${a.toFixed(1)}" x2="${b.toFixed(1)}" y1="${y(u.pct).toFixed(1)}" y2="${y(u.pct).toFixed(1)}"/>`;
+  }
   const runs = []; let run = null;
   ss.forEach((s, i) => {
     const next = ss[i + 1], end = Math.min(next ? next.m : nowMin, s.m + STALE_S / 60);
@@ -972,10 +1012,10 @@ function curveSVG(samples, day, h = 64) {
 }
 const curveTicks = () => `<div class="ticks">${[6, 9, 12, 15, 18, 21, 24].map(t => `<span>${t}</span>`).join("")}</div>`;
 
-function curveBlock(samples, day, small) {
-  if (!samples.length) return `<p class="meta">No samples ${day.date === day.now.slice(0, 10) ? "today" : "that day"}.</p>`;
+function curveBlock(samples, day, small, usual = null) {
+  if (!samples.length && !usual?.slots.length) return `<p class="meta">No samples ${day.date === day.now.slice(0, 10) ? "today" : "that day"}.</p>`;
   const numeric = samples.some(s => s.pct != null && !s.closed);
-  return curveSVG(samples, day, small ? 28 : 64) + (small ? "" : curveTicks()) +
+  return curveSVG(samples, day, small ? 28 : 64, usual) + (small ? "" : curveTicks()) +
     (numeric ? "" : `<p class="meta">No live numbers ${day.date === day.now.slice(0, 10) ? "today" : "that day"}${samples.some(s => s.closed) ? " (closed)" : ""}.</p>`);
 }
 
@@ -984,12 +1024,31 @@ function fillCurves(id) {
   if (!el) return;
   if (!c?.data) { el.innerHTML = `<p class="meta">${c?.error ? "Couldn't load today's samples." : "Loading today's samples…"}</p>`; return; }
   const d = c.data, day = { date: d.date, now: d.now };
-  el.innerHTML = curveBlock(d.place.samples, day, false) +
-    `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.</div>`;
+  const u = d.place.usual, bars = u?.slots.length > 0 || d.kids.some(k => k.usual?.slots.length);
+  // A library made of floors has no samples of its own: its curves are the floors' (its usual bars are their sum).
+  const own = d.place.samples.length || !d.kids.length || (d.place.latest && !d.place.latest.floors);
+  el.innerHTML = (own ? curveBlock(d.place.samples, day, false, u)
+      : curveSVG([], day, 64, u) + curveTicks() + `<p class="meta">Today's numbers are per floor, below.</p>`) + usualHTML(u, day) +
+    `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.${bars ? ` Faint bars: usual for a ${u?.weekday || "day like this"}.` : ""}</div>`;
   for (const k of d.kids) {
     const kel = document.querySelector(`.kcurve[data-id="${CSS.escape(k.id)}"]`);
-    if (kel) kel.innerHTML = curveBlock(k.samples, day, true);
+    if (kel) kel.innerHTML = curveBlock(k.samples, day, true, k.usual);
   }
+}
+
+// Popular times in words: "usually X % at this time", "usually fills up by", or why there's nothing yet.
+function usualHTML(u, day) {
+  if (!u) return "";
+  const wd = u.weekday;
+  if (!u.slots.length) return `<p class="meta">Usual times: not enough history yet. They need ${u.min_weeks} ${wd}s with data in the last ${u.window_weeks} weeks; ${u.weeks ? `there ${u.weeks === 1 ? "is 1" : `are ${u.weeks}`} so far` : "there are none so far"}.</p>`;
+  const most = Math.max(...u.slots.map(s => s.weeks));
+  const lines = [`Usual ${wd}: median of ${most} ${wd}s in the last ${u.window_weeks} weeks (shown where at least ${u.min_weeks} have data).`];
+  if (day.date === day.now.slice(0, 10)) {
+    const m = toMin(hm(day.now)), cur = u.slots.find(s => toMin(s.start) <= m && m < toMin(s.start) + u.slot_min);
+    if (cur) lines.push(`<b>Usually ${Math.round(cur.pct)} % taken</b> at this time.`);
+  }
+  if (u.fills_by) lines.push(`Usually fills up by ${esc(u.fills_by)} (90 % taken).`);
+  return `<p class="meta">${lines.join(" ")}</p>`;
 }
 
 const DAY_LABEL = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
@@ -1041,7 +1100,7 @@ function renderPlacePanel() {
   const o = occ(p.latest || aggregate(p.kids), p.seats, p.source), s = p.latest;
   const where = [p.building && p.building !== p.name ? p.building : null, p.campus, p.uni,
     p.seats ? `${p.seats} seats` : null].filter(Boolean).join(", ");
-  const measured = s ? [s.count != null && !s.closed ? `${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
+  const measured = s ? [s.floors ? "Sum of the floors below" : null, s.count != null && !s.closed ?`${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
       `measured ${fmtAge(s.age_s)} ago`, SAMPLE_SOURCES[sampleSource(p)] || SOURCE_NAMES[sampleSource(p)] || sampleSource(p)].filter(Boolean).join(", ")
     : p.kids.length && o.rank === 0 ? "Sum of the floors below" : "";
   const notice = p.hours?.notice && (p.hours.notice.en || p.hours.notice.de);
@@ -1136,7 +1195,8 @@ function nearCandidates() {
   }
   // Nearest first; equally near: the room free longest, the place with most seats free.
   const score = c => c.kind === "room" ? -(c.x.minutes ?? 1e6) : -(c.o.free ?? 0);
-  const known = out.filter(c => c.d != null).sort((a, b) => a.d - b.d || score(a) - score(b));
+  const known = heroFirst(out.filter(c => c.d != null).sort((a, b) => a.d - b.d || score(a) - score(b)),
+    c => c.kind === "room" && c.x.unreliable, c => c.d);
   const unknown = out.filter(c => c.d == null).sort((a, b) => score(a) - score(b));
   return { known, unknown };
 }
@@ -1247,6 +1307,12 @@ $("#cb").setAttribute("aria-pressed", String(document.documentElement.classList.
 $("#cb").addEventListener("click", e => {
   const on = document.documentElement.classList.toggle("cb");
   store.set("cb", on); e.currentTarget.setAttribute("aria-pressed", String(on));
+});
+$("#rel").setAttribute("aria-pressed", String(state.reliable));
+$("#rel").addEventListener("click", e => {
+  state.reliable = !state.reliable;
+  store.set("reliable", state.reliable); e.currentTarget.setAttribute("aria-pressed", String(state.reliable));
+  render();
 });
 
 const params = new URLSearchParams(location.search);
