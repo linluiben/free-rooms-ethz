@@ -173,6 +173,8 @@
   .curve .pt { fill: var(--ink); } .curve .off { fill: var(--faded); opacity: .25; }
   .curve .grid { stroke: var(--faded); stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; } .curve .base { stroke: var(--ink); }
   .curve .now { stroke: var(--red); stroke-width: 1.5; } .curve text { fill: var(--faded); font-size: 10px; }
+  /* Popular times: the usual share taken as faint bars behind today's curve, each with a top edge. */
+  .curve .usual { fill: var(--faded); opacity: .16; } .curve .utop { stroke: var(--faded); stroke-width: 1.5; }
   .psub { padding: 6px 0; }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .tags span { border: 1.5px solid var(--ink); border-radius: 3px; padding: 3px 9px 2px; font-size: 14px; }
@@ -943,12 +945,18 @@ function loadPlaceDay(id) {
 // One day of samples as an inline SVG area chart of the share occupied, 06:00–24:00 local time.
 // A numeric sample counts until the next sample, but at most STALE_S; a no-data sample leaves a gap
 // until the next one (runs of them are stored once); a closed one is shaded until the next one.
-function curveSVG(samples, day, h = 64) {
+// `usual` (popular times, from api/place) adds one faint bar per slot behind the curve.
+function curveSVG(samples, day, h = 64, usual = null) {
   const W = 360, top = 4, x = m => Math.max(0, Math.min(W, (m - CURVE_START * 60) / ((CURVE_END - CURVE_START) * 60) * W));
   const y = pct => top + (h - top) * (1 - Math.max(0, Math.min(100, pct)) / 100);
   const today = day.date === day.now.slice(0, 10), nowMin = today ? toMin(hm(day.now)) : 1440;
   const ss = samples.map(s => ({ ...s, m: toMin(hm(s.local)) }));
   let svg = `<line class="grid" x1="0" x2="${W}" y1="${y(70)}" y2="${y(70)}"/><line class="grid" x1="0" x2="${W}" y1="${y(90)}" y2="${y(90)}"/>`;
+  for (const u of usual?.slots || []) {
+    const a = x(toMin(u.start)), b = x(toMin(u.start) + usual.slot_min) - 1.5;
+    if (b > a) svg += `<rect class="usual" x="${a.toFixed(1)}" y="${y(u.pct).toFixed(1)}" width="${(b - a).toFixed(1)}" height="${(h - y(u.pct)).toFixed(1)}"/>` +
+      `<line class="utop" x1="${a.toFixed(1)}" x2="${b.toFixed(1)}" y1="${y(u.pct).toFixed(1)}" y2="${y(u.pct).toFixed(1)}"/>`;
+  }
   const runs = []; let run = null;
   ss.forEach((s, i) => {
     const next = ss[i + 1], end = Math.min(next ? next.m : nowMin, s.m + STALE_S / 60);
@@ -973,10 +981,10 @@ function curveSVG(samples, day, h = 64) {
 }
 const curveTicks = () => `<div class="ticks">${[6, 9, 12, 15, 18, 21, 24].map(t => `<span>${t}</span>`).join("")}</div>`;
 
-function curveBlock(samples, day, small) {
-  if (!samples.length) return `<p class="meta">No samples ${day.date === day.now.slice(0, 10) ? "today" : "that day"}.</p>`;
+function curveBlock(samples, day, small, usual = null) {
+  if (!samples.length && !usual?.slots.length) return `<p class="meta">No samples ${day.date === day.now.slice(0, 10) ? "today" : "that day"}.</p>`;
   const numeric = samples.some(s => s.pct != null && !s.closed);
-  return curveSVG(samples, day, small ? 28 : 64) + (small ? "" : curveTicks()) +
+  return curveSVG(samples, day, small ? 28 : 64, usual) + (small ? "" : curveTicks()) +
     (numeric ? "" : `<p class="meta">No live numbers ${day.date === day.now.slice(0, 10) ? "today" : "that day"}${samples.some(s => s.closed) ? " (closed)" : ""}.</p>`);
 }
 
@@ -985,12 +993,28 @@ function fillCurves(id) {
   if (!el) return;
   if (!c?.data) { el.innerHTML = `<p class="meta">${c?.error ? "Couldn't load today's samples." : "Loading today's samples…"}</p>`; return; }
   const d = c.data, day = { date: d.date, now: d.now };
-  el.innerHTML = curveBlock(d.place.samples, day, false) +
-    `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.</div>`;
+  const u = d.place.usual, bars = u?.slots.length > 0 || d.kids.some(k => k.usual?.slots.length);
+  el.innerHTML = curveBlock(d.place.samples, day, false, u) + usualHTML(u, day) +
+    `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.${bars ? ` Faint bars: usual for a ${u?.weekday || "day like this"}.` : ""}</div>`;
   for (const k of d.kids) {
     const kel = document.querySelector(`.kcurve[data-id="${CSS.escape(k.id)}"]`);
-    if (kel) kel.innerHTML = curveBlock(k.samples, day, true);
+    if (kel) kel.innerHTML = curveBlock(k.samples, day, true, k.usual);
   }
+}
+
+// Popular times in words: "usually X % at this time", "usually fills up by", or why there's nothing yet.
+function usualHTML(u, day) {
+  if (!u) return "";
+  const wd = u.weekday;
+  if (!u.slots.length) return `<p class="meta">Usual times: not enough history yet. They need ${u.min_weeks} ${wd}s with data in the last ${u.window_weeks} weeks; ${u.weeks ? `there ${u.weeks === 1 ? "is 1" : `are ${u.weeks}`} so far` : "there are none so far"}.</p>`;
+  const most = Math.max(...u.slots.map(s => s.weeks));
+  const lines = [`Usual ${wd}: median of ${most} ${wd}s in the last ${u.window_weeks} weeks (shown where at least ${u.min_weeks} have data).`];
+  if (day.date === day.now.slice(0, 10)) {
+    const m = toMin(hm(day.now)), cur = u.slots.find(s => toMin(s.start) <= m && m < toMin(s.start) + u.slot_min);
+    if (cur) lines.push(`<b>Usually ${Math.round(cur.pct)} % taken</b> at this time.`);
+  }
+  if (u.fills_by) lines.push(`Usually fills up by ${esc(u.fills_by)} (90 % taken).`);
+  return `<p class="meta">${lines.join(" ")}</p>`;
 }
 
 const DAY_LABEL = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
