@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS booking_changes (
     prev_fetch  TEXT NOT NULL,      -- UTC ISO, the fetch before it (the change happened in between)
     start       TEXT NOT NULL,      -- naive Europe/Zurich, like intervals
     end         TEXT NOT NULL,
-    change      TEXT NOT NULL,      -- 'added' | 'removed' | 'moved' | 'restored' (only 'added' counts)
+    change      TEXT NOT NULL,      -- 'added' | 'removed' | 'moved' | 'restored'; closures: 'closure' |
+                                    -- 'closure_removed' | 'closure_restored' | 'closure_shifted'. Only 'added'
+                                    -- and 'closure' count; a closure's leads count to its first newly closed minute
     lead_s      INTEGER NOT NULL,   -- start - detected_at, seconds
     max_lead_s  INTEGER NOT NULL,   -- start - prev_fetch: the longest the real lead time can be
     title       TEXT

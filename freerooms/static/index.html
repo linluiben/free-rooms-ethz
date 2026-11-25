@@ -235,7 +235,8 @@
   <div class="summary" id="summary">Loading…</div>
   <div id="list"></div>
   <footer id="footer"></footer>
-  <p class="prefs"><button class="chip" id="cb" aria-pressed="false">Colour-blind safe colours</button></p>
+  <p class="prefs"><button class="chip" id="cb" aria-pressed="false">Colour-blind safe colours</button>
+    <button class="chip" id="rel" aria-pressed="false" title="Don't put rooms often booked at short notice on the door sign while another room is about as good">Prefer reliable rooms</button></p>
 </main>
 <div id="shade"></div>
 <aside id="panel" role="dialog" aria-modal="false" aria-label="Room details" tabindex="-1"></aside>
@@ -275,6 +276,7 @@ const state = {
   place: null,                                   // id of the study place shown in the panel (never both)
   pushed: false,                                // did we add a history entry for the panel?
   nearSort: store.get("nearsort", false),        // Rooms, Buildings, Study: nearest first
+  reliable: store.get("reliable", false),        // "Prefer reliable rooms": down-rank flagged rooms (heroFirst)
   pos: null,                                     // { lat, lon, acc } from the browser, never stored or sent
   geo: "off",                                    // "off" | "asking" | "ok" | "denied" | "error" | "unsupported"
 };
@@ -502,13 +504,14 @@ function card(r, at, unis) {
     ${timelineBar(r.timeline, at, false)}</button>`;
 }
 
-// Rooms that often get booked at short notice (server: reliability.py) get a small note, and don't
-// get the door-sign plate while a room that isn't flagged is about as good: in the Rooms view the next
-// one in the list, in Near (or with Nearest first) the nearest one at most HERO_SLACK_M farther away.
+// Rooms that often get booked at short notice or closed (server: reliability.py) always get a small note.
+// With "Prefer reliable rooms" on (off by default) they also don't get the door-sign plate while a room
+// that isn't flagged is about as good: in the Rooms view the next one in the list, in Near (or with
+// Nearest first) the nearest one at most HERO_SLACK_M farther away.
 const HERO_SLACK_M = 250;
 const flagNote = r => r.unreliable ? `, <span class="warn" title="${esc(r.unreliable_reason || "")}">often booked at short notice</span>` : "";
 function heroFirst(list, flagged, d = () => null) {
-  if (!list.length || !flagged(list[0])) return list;
+  if (!state.reliable || !list.length || !flagged(list[0])) return list;
   const d0 = d(list[0]);
   const i = list.findIndex(x => !flagged(x) && (d0 == null || d(x) == null || d(x) - d0 <= HERO_SLACK_M));
   return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
@@ -667,7 +670,7 @@ function renderPanel() {
     <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
     ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
     ${hours ? `<div class="meta">Building ${esc(r.building)} ${hours}</div>` : ""}
-    ${r.unreliable ? `<div class="meta"><span class="warn">Often booked at short notice</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken although it shows as free.</div>` : ""}
+    ${r.unreliable ? `<div class="meta"><span class="warn">Often booked at short notice</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken or closed although it shows as free.</div>` : ""}
     ${dist(r) != null ? `<div class="meta"><span class="walk">${esc(walkText(dist(r), true))}</span> ${dist(r) >= 40 ? heading(state.pos, r) : ""}, to the middle of ${esc(r.building)}</div>` : ""}
     <h3>${esc(day)}</h3>
     ${timelineBar(r.timeline, at, true)}
@@ -1287,6 +1290,12 @@ $("#cb").setAttribute("aria-pressed", String(document.documentElement.classList.
 $("#cb").addEventListener("click", e => {
   const on = document.documentElement.classList.toggle("cb");
   store.set("cb", on); e.currentTarget.setAttribute("aria-pressed", String(on));
+});
+$("#rel").setAttribute("aria-pressed", String(state.reliable));
+$("#rel").addEventListener("click", e => {
+  state.reliable = !state.reliable;
+  store.set("reliable", state.reliable); e.currentTarget.setAttribute("aria-pressed", String(state.reliable));
+  render();
 });
 
 const params = new URLSearchParams(location.search);

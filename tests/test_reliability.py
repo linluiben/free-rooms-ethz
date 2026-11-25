@@ -154,6 +154,62 @@ class Fetches(unittest.TestCase):
                        uni="UZH", window=(DAY, DAY + timedelta(days=6)))
         self.assertEqual([c for c, _ in ch], ["added"])
 
+    # Closures
+
+    def test_short_notice_closure_counts(self):
+        # "Hauptgebäude ab 13:30 geschlossen", announced the same morning.
+        self.save(NIGHTS + [busy("23T10:00:00", "23T12:00:00")], "2026-11-23T08:00")
+        ch = self.save(NIGHTS + [busy("23T10:00:00", "23T12:00:00"), closed("23T13:30:00", "23T23:59:00")],
+                       "2026-11-23T10:00")
+        self.assertEqual([c for c, _ in ch], ["closure"])
+        (change, start, lead, max_lead), = self.events()
+        self.assertEqual((change, start), ("closure", "2026-11-23T13:30:00"))
+        self.assertEqual((lead, max_lead), (int(3.5 * 3600), int(5.5 * 3600)))
+        s = reliability.scores(self.conn, utc("2026-11-23T10:00"))[RID]
+        self.assertEqual((s["short_notice"], s["closures"], s["unreliable"]), (0, 1, False))
+
+    def test_closure_brought_forward_counts_from_the_new_start(self):
+        evening = closed("24T20:00:00", "24T23:59:00")
+        self.save(NIGHTS + [evening], "2026-11-23T20:00")
+        ch = self.save(NIGHTS + [closed("24T13:30:00", "24T23:59:00")], "2026-11-24T06:00")
+        self.assertEqual(sorted(c for c, _ in ch), ["closure", "closure_removed"])
+        (_, start, _, max_lead), = self.events("closure")
+        self.assertEqual(start, "2026-11-24T13:30:00")       # the interval ...
+        self.assertEqual(max_lead, int(17.5 * 3600))          # ... and the lead to 13:30, the first newly closed minute
+
+    def test_closure_closing_more_later_counts_from_the_newly_closed_part(self):
+        # The night closure extended to noon: what is newly closed starts at 07:00.
+        self.save(NIGHTS + [closed("24T00:00:00", "24T07:00:00")], "2026-11-23T08:00")
+        self.save(NIGHTS + [closed("24T00:00:00", "24T12:00:00")], "2026-11-23T10:00")
+        (_, _, _, max_lead), = self.events("closure")
+        self.assertEqual(max_lead, (24 + 7 - 8) * 3600)      # 07:00 on the 24th, from the 08:00 fetch: 23 h
+
+    def test_split_or_shifted_closures_dont_count(self):
+        self.save(NIGHTS + [closed("23T18:00:00", "23T23:59:00")], "2026-11-23T08:00")
+        # The same evening closure cut in two, and the night closure starting 15 minutes earlier.
+        rows = [closed("22T23:45:00", "23T07:00:00"), NIGHTS[1],
+                closed("23T18:00:00", "23T21:00:00"), closed("23T21:00:00", "23T23:59:00")]
+        ch = self.save(rows, "2026-11-23T10:00")
+        self.assertNotIn("closure", [c for c, _ in ch])
+        self.assertEqual(reliability.scores(self.conn, utc("2026-11-23T10:00")), {})
+
+    def test_closures_dropped_and_back_dont_count(self):
+        rows = NIGHTS + [busy("23T10:00:00", "23T11:00:00"), closed("23T18:00:00", "23T23:59:00")]
+        self.save(rows, "2026-11-23T08:00")
+        self.save([busy("23T10:00:00", "23T11:00:00")], "2026-11-23T09:00")   # hiccup: only bookings came back
+        self.save(rows, "2026-11-23T10:00")
+        self.assertNotIn("closure", [c for c, *_ in self.events()])
+        self.assertIn("closure_restored", [c for c, *_ in self.events()])
+        self.assertEqual(reliability.scores(self.conn, utc("2026-11-23T10:00")), {})
+
+    def test_closure_after_a_long_gap_or_on_a_new_day_doesnt_count(self):
+        self.save(NIGHTS, "2026-11-20T08:00", window=(date(2026, 11, 20), date(2026, 11, 27)), n_raw=5)
+        self.save(NIGHTS + [closed("23T13:30:00", "23T23:59:00")], "2026-11-23T10:00")
+        self.assertEqual(reliability.scores(self.conn, utc("2026-11-23T10:00")), {})   # may be 3 days old
+        # A closure on the day entering the window is not a change.
+        self.assertEqual(self.save(NIGHTS + [closed("23T13:30:00", "23T23:59:00"), closed("30T13:30:00", "30T23:59:00")],
+                                   "2026-11-23T12:00", window=(DAY, DAY + timedelta(days=8))), [])
+
 
 class Scoring(unittest.TestCase):
     now = datetime(2026, 11, 25, 12, tzinfo=timezone.utc)
@@ -183,7 +239,7 @@ class Scoring(unittest.TestCase):
         for d in (1, 5, 40):             # 2 in the window, one too old
             self.event("B", d)
         s = reliability.scores(self.conn, self.now)
-        self.assertEqual(s["A"], {"short_notice": 4, "per_week": 1.0, "unreliable": True,
+        self.assertEqual(s["A"], {"short_notice": 4, "closures": 0, "per_week": 1.0, "unreliable": True,
                                   "reason": "4 short-notice bookings in the last 4 weeks"})
         self.assertFalse(s["B"]["unreliable"])
         self.assertEqual(s["B"]["short_notice"], 2)
@@ -215,6 +271,48 @@ class Scoring(unittest.TestCase):
         for d in (1, 10, 20):            # 3 in 4 weeks = 0.75/week
             self.event("A", d)
         self.assertFalse(reliability.scores(self.conn, self.now)["A"]["unreliable"])
+
+    def test_closures_weigh_half(self):
+        self.room("A", 60)
+        for d in (1, 5, 9, 13, 17, 21):  # 6 closures in 4 weeks: 3 points, 0.75/week
+            self.event("A", d, change="closure")
+        self.room("B", 60)
+        for d in range(1, 25, 3):        # 8 closures: 4 points, 1/week
+            self.event("B", d, change="closure")
+        s = reliability.scores(self.conn, self.now)
+        self.assertEqual((s["A"]["closures"], s["A"]["per_week"], s["A"]["unreliable"]), (6, 0.75, False))
+        self.assertTrue(s["B"]["unreliable"])
+        self.assertEqual(s["B"]["reason"], "8 short-notice closures in the last 4 weeks")
+
+    def test_bookings_and_closures_together(self):
+        self.room("A", 2)                # judged on one week
+        for d in (0, 1):
+            self.event("A", d)
+            self.event("A", d + 0.5, change="closure")
+        self.room("B", 2)
+        self.event("B", 0)
+        self.event("B", 1, change="closure")
+        self.event("B", 1, change="closure", max_lead_h=30)   # not short notice
+        s = reliability.scores(self.conn, self.now)
+        self.assertEqual(s["A"]["reason"], "2 short-notice bookings, 2 closures in the last week")
+        self.assertEqual((s["B"]["short_notice"], s["B"]["closures"], s["B"]["unreliable"]), (1, 1, False))
+        self.assertEqual(reliability.assess(1, 1, 4), (True, "1 short-notice booking, 4 closures in the last week"))
+        self.assertEqual(reliability.assess(3, 1, 1), (True, "3 short-notice bookings, 1 closure in the last week"))
+
+    def test_closures_found_in_one_fetch_are_one_closure(self):
+        # A building closed Friday 13:30 to Monday: several intervals, one announcement.
+        self.room("A", 60)
+        for _ in range(3):
+            self.event("A", 1, change="closure")
+        self.assertEqual(reliability.scores(self.conn, self.now)["A"]["closures"], 1)
+
+    def test_building_wide_closures_dont_flag_the_building_quickly(self):
+        # Three short-notice closures of HG in two weeks hit every room once each: no room is flagged.
+        for i in range(40):
+            self.room(f"HG {i}", 60)
+            for d in (2, 6, 11):
+                self.event(f"HG {i}", d, change="closure")
+        self.assertFalse(any(x["unreliable"] for x in reliability.scores(self.conn, self.now).values()))
 
     def test_annotate(self):
         rooms = reliability.annotate([{"id": "A"}, {"id": "B"}],
@@ -269,6 +367,28 @@ class Api(unittest.TestCase):
             self.assertEqual(det["tabs"], [])
         finally:
             httpd.shutdown()
+
+
+class Cli(unittest.TestCase):
+    def test_now_marks_flagged_rooms(self):
+        from freerooms.__main__ import now_lines
+        conn = store.connect(os.path.join(tempfile.mkdtemp(), "t.sqlite"))
+        now = datetime.now(timezone.utc)
+        conn.execute("INSERT INTO rooms(id, building, floor, room, seats, type, n_entries, watch_since) VALUES (?,?,?,?,?,?,1,?)",
+                     (RID, "HG", "E", "1.2", 40, "Seminar", (now - timedelta(days=60)).isoformat(timespec="seconds")))
+        conn.execute("INSERT INTO rooms(id, building, floor, room, seats, type, n_entries) VALUES ('HG E 3','HG','E','3',20,'Seminar',1)")
+        for d in range(4):
+            t = (now - timedelta(days=d)).isoformat(timespec="seconds")
+            conn.execute("""INSERT INTO booking_changes(room_id, detected_at, prev_fetch, start, end, change, lead_s,
+                            max_lead_s) VALUES (?,?,?,?,?,'added',3600,7200)""", (RID, t, t, "x", "y"))
+        conn.commit()
+        lines = now_lines(conn, datetime(2026, 11, 23, 10))
+        self.assertEqual(lines[0], "2 free rooms at Mon 23.11. 10:00")
+        flagged = [x for x in lines if "often booked at short notice" in x]
+        self.assertEqual(len(flagged), 1)
+        self.assertTrue(flagged[0].strip().startswith(RID))
+        self.assertTrue(flagged[0].endswith("(often booked at short notice)"))
+        conn.close()
 
 
 ROOM = {"building": "HG", "floor": "E", "room": "1.2", "typecode": "3430", "locationName": "Zürich Zentrum"}
