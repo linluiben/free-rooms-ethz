@@ -107,21 +107,83 @@ def add_samples(conn: sqlite3.Connection, samples: list[Sample]) -> int:
     return conn.total_changes - before
 
 
+# Our own trend, for samples without one from the source (UZH libraries, ICBP floors). We compare the
+# latest pct with the newest sample that is 15-30 min older; nothing in that window (a gap) -> no trend.
+TREND_MIN_S, TREND_MAX_S = 15 * 60, 30 * 60
+# A change below 5 % of capacity counts as steady (ETH says its trend reacts to about 5 %).
+TREND_DEAD_BAND = 5.0
+# Sources that only report pct in steps: a change needs at least one step, seen in the last two samples.
+PCT_STEP = {"uzh_ub": 5.0}
+
+
+def computed_trend(series: list[dict], step: float | None = None) -> int | None:
+    """-1 / 0 / 1 from a place's samples (oldest first, the latest last; dicts with ts, pct, closed).
+
+    None when the latest sample has no number or is closed, when there is no sample 15-30 min
+    before it, or when a sample from that one on is closed or has no number (no trend across
+    a closing or a no-data stretch). With `step` (rounded source), the change must be at least one
+    step and the sample before the latest must show it too; otherwise it counts as steady.
+    """
+    if not series:
+        return None
+    last = series[-1]
+    if last["closed"] or last["pct"] is None:
+        return None
+    t_last = datetime.fromisoformat(last["ts"])
+    ref = None
+    for i in range(len(series) - 2, -1, -1):
+        age = (t_last - datetime.fromisoformat(series[i]["ts"])).total_seconds()
+        if age >= TREND_MIN_S:
+            ref = i if age <= TREND_MAX_S else None
+            break
+    if ref is None:
+        return None
+    path = series[ref:]
+    if any(s["closed"] or s["pct"] is None for s in path):
+        return None
+    band = max(TREND_DEAD_BAND, step or 0.0)
+    delta = last["pct"] - path[0]["pct"]
+    if abs(delta) < band:
+        return 0
+    sign = 1 if delta > 0 else -1
+    if step:
+        prev = series[-2]
+        if prev is path[0] or (prev["pct"] - path[0]["pct"]) * sign < band:
+            return 0
+    return sign
+
+
 def latest(conn: sqlite3.Connection, now: datetime | None = None) -> list[dict]:
-    """Every place with its most recent sample (or None) and that sample's age in seconds."""
+    """Every place with its most recent sample (or None) and that sample's age in seconds.
+
+    `latest.trend` is the source's trend if it sent one (`trend_source` 'source'), else our own
+    from the last 30 min of samples (`computed_trend`, 'computed'), else None. One query: each
+    place joined with its samples from the 30 min up to its newest one.
+    """
     now = now or datetime.now(timezone.utc)
     rows = conn.execute(
-        """SELECT p.*, o.ts, o.status, o.pct, o.count, o.max, o.trend, o.closed
-           FROM places p LEFT JOIN occupancy o ON o.place_id = p.id
-             AND o.ts = (SELECT MAX(ts) FROM occupancy WHERE place_id = p.id)
-           ORDER BY p.uni, p.campus, p.name""").fetchall()
-    out = []
+        f"""SELECT p.*, o.ts, o.status, o.pct, o.count, o.max, o.trend, o.closed
+           FROM places p
+           LEFT JOIN (SELECT place_id, MAX(ts) AS last FROM occupancy GROUP BY place_id) m ON m.place_id = p.id
+           LEFT JOIN occupancy o ON o.place_id = p.id AND o.ts <= m.last
+             AND o.ts >= strftime('%Y-%m-%dT%H:%M:%S+00:00', m.last, '-{TREND_MAX_S} seconds')
+           ORDER BY p.uni, p.campus, p.name, p.id, o.ts""").fetchall()
+    groups: dict[str, list] = {}
     for r in rows:
+        groups.setdefault(r["id"], []).append(r)
+    out = []
+    for rs in groups.values():
+        r = rs[-1]
         sample = None
         if r["ts"]:
             sample = {k: r[k] for k in ("ts", "status", "pct", "count", "max", "trend")}
             sample["closed"] = bool(r["closed"])
             sample["age_s"] = int((now - datetime.fromisoformat(r["ts"])).total_seconds())
+            sample["trend_source"] = "source" if r["trend"] is not None else None
+            if r["trend"] is None:
+                series = [{"ts": x["ts"], "pct": x["pct"], "closed": bool(x["closed"])} for x in rs]
+                sample["trend"] = computed_trend(series, PCT_STEP.get(r["source"]))
+                sample["trend_source"] = None if sample["trend"] is None else "computed"
         out.append({
             "id": r["id"], "parent_id": r["parent_id"], "uni": r["uni"], "campus": r["campus"],
             "building": r["building"], "name": r["name"], "seats": r["seats"],

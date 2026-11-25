@@ -844,7 +844,8 @@ function occ(s, seats, source) {
   const text = free == null ? word : `${step > 1 ? "~" : ""}${free}% free` + (n ? ` <small>of ${esc(n)}</small>` : "");
   if (s.age_s > STALE_S)
     return { cls: "unknown", text: `<span class="warn">${text}, ${fmtAge(s.age_s)} ago</span>`, rank: 1, free };
-  const tr = { 1: ["↗", "filling up"], "-1": ["↘", "emptying"], 0: ["→", "steady"] }[s.trend];
+  const tr = { 1: ["↗", "filling up"], "-1": ["↘", "emptying"], 0: ["→", "steady"] }[s.trend]?.slice();
+  if (tr && s.trend_source === "computed") tr[1] += " (last 15–30 min)";   // our own trend (places.computed_trend)
   return { cls: st, text: text + (tr ? ` <span class="trend" title="${tr[1]}" aria-label="${tr[1]}">${tr[0]}</span>` : ""), rank: 0, free };
 }
 // A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh samples.
