@@ -110,6 +110,35 @@ def usual_now(conn: sqlite3.Connection, place_ids: list[str], now: datetime | No
     return out
 
 
+def _weighted(pcts: list[float], weights: list[float]) -> float:
+    return round(sum(p * w for p, w in zip(pcts, weights)) / sum(weights), 1)
+
+
+def sum_usual_day(floors: list[dict], weights: list[float]) -> dict:
+    """A library's usual curve from its floors' (usual_day results, with the floors' seats as
+    weights): per slot the seat-weighted mean of the floors' usual values, i.e. usual people over
+    seats. A slot needs a value on every floor; its `weeks` and the overall `weeks` are the
+    minimum over the floors (the floor with the least history decides)."""
+    base = floors[0]
+    by_floor = [{s["start"]: s for s in f["slots"]} for f in floors]
+    slots = []
+    for start in sorted(set.intersection(*(set(b) for b in by_floor))):
+        ss = [b[start] for b in by_floor]
+        slots.append({"start": start, "pct": _weighted([s["pct"] for s in ss], weights),
+                      "weeks": min(s["weeks"] for s in ss)})
+    return {**{k: base[k] for k in ("weekday", "slot_min", "window_weeks", "min_weeks")},
+            "weeks": min(f["weeks"] for f in floors), "slots": slots,
+            "fills_by": next((s["start"] for s in slots if s["pct"] >= FULL_PCT), None)}
+
+
+def sum_usual_now(floors: list[dict | None], weights: list[float]) -> dict | None:
+    """The same for usual_now: None unless every floor has a usual value for the current slot."""
+    if not floors or any(f is None for f in floors):
+        return None
+    return {"pct": _weighted([f["pct"] for f in floors], weights), "weeks": min(f["weeks"] for f in floors),
+            "slot": floors[0]["slot"]}
+
+
 def slot_key(now: datetime | None = None, slot_min: int = SLOT_MIN) -> tuple[str, int]:
     """(Zurich date, slot index): usual_now's result is the same for every `now` with this key."""
     local = (now or datetime.now(timezone.utc)).astimezone(TZ)

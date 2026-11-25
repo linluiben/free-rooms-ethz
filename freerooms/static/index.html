@@ -164,6 +164,7 @@
   .subs { margin-top: 8px; padding-top: 2px; }
   .sub { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; padding: 3px 0; }
   .sub .status { font-size: 14px; }
+  .scard .usual-now { color: var(--faded); font-size: 14px; font-weight: 500; white-space: nowrap; margin-left: 6px; }
   .srclink { font-size: 14px; white-space: nowrap; }
   .bigocc { font-size: 22px; font-weight: 700; margin-top: 12px; }
   .bigocc .dot { width: 16px; height: 16px; }
@@ -864,7 +865,17 @@ function occ(s, seats, source) {
   if (tr && s.trend_source === "computed") tr[1] += " (last 15–30 min)";   // our own trend (places.computed_trend)
   return { cls: st, text: text + (tr ? ` <span class="trend" title="${tr[1]}" aria-label="${tr[1]}">${tr[0]}</span>` : ""), rank: 0, free };
 }
-// A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh samples.
+// Popular times on the cards: the usual share free in this half hour (usual_now from api/places), next to
+// the live value and in the same terms. Nothing when there isn't enough history (usual_now null).
+function usualNow(p) {
+  const u = p.usual_now;
+  if (!u) return "";
+  const step = PCT_STEP[p.source] || 1, free = Math.max(0, Math.min(100, Math.round((100 - u.pct) / step) * step));
+  const tip = `Usually ${Math.round(u.pct)} % taken at ${u.slot} on this weekday (median of ${u.weeks} weeks)`;
+  return ` <span class="usual-now" title="${esc(tip)}">usually ${step > 1 ? "~" : ""}${free}% free</span>`;
+}
+// A parent without a sample of its own (a library made of floors) shows the sum of its children's fresh
+// samples. The server does this now (places.sum_floors, with a trend); this stays as a fallback.
 function aggregate(kids) {
   const ss = kids.map(k => k.latest).filter(s => s && !s.closed && s.count != null && s.max && s.age_s <= STALE_S);
   if (!ss.length) return null;
@@ -881,7 +892,7 @@ function spaceCard(r, closed) {
   const subs = p.kids.length ? `<div class="subs">${p.kids.map(k => { const ko = occ(k.latest, k.seats, k.source);
     return `<div class="sub"><span><span class="dot ${ko.cls}" aria-hidden="true"></span>${esc(k.name)}</span><span class="status s-${ko.cls}">${ko.text}</span></div>`; }).join("")}</div>` : "";
   return `<div class="card scard${closed ? " soon" : ""}${state.place === p.id ? " sel" : ""}" data-id="${esc(p.id)}" role="button" tabindex="0">
-    <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}</span></div>
+    <div class="top"><span class="name"><span class="dot ${o.cls}" aria-hidden="true"></span>${esc(p.name)}</span><span class="status s-${o.cls}">${o.text}${usualNow(p)}</span></div>
     <div class="meta">${walk}${walk ? ", " : ""}${esc([where, tags.join(", ")].filter(Boolean).join(", "))}${p.url ? `, <a class="srclink" href="${esc(p.url)}" target="_blank" rel="noopener">Info ↗</a>` : ""}</div>
     ${h.line ? `<div class="meta">${h.line}</div>` : ""}${p.note ? `<div class="meta warn">${esc(p.note)}</div>` : ""}${subs}</div>`;
 }
@@ -1008,7 +1019,10 @@ function fillCurves(id) {
   if (!c?.data) { el.innerHTML = `<p class="meta">${c?.error ? "Couldn't load today's samples." : "Loading today's samples…"}</p>`; return; }
   const d = c.data, day = { date: d.date, now: d.now };
   const u = d.place.usual, bars = u?.slots.length > 0 || d.kids.some(k => k.usual?.slots.length);
-  el.innerHTML = curveBlock(d.place.samples, day, false, u) + usualHTML(u, day) +
+  // A library made of floors has no samples of its own: its curves are the floors' (its usual bars are their sum).
+  const own = d.place.samples.length || !d.kids.length || (d.place.latest && !d.place.latest.floors);
+  el.innerHTML = (own ? curveBlock(d.place.samples, day, false, u)
+      : curveSVG([], day, 64, u) + curveTicks() + `<p class="meta">Today's numbers are per floor, below.</p>`) + usualHTML(u, day) +
     `<div class="note">Share of seats taken, ${CURVE_START}:00–${CURVE_END}:00. Dashed lines: 70 % and 90 % (yellow and red). Grey: closed. Gaps: no data.${bars ? ` Faint bars: usual for a ${u?.weekday || "day like this"}.` : ""}</div>`;
   for (const k of d.kids) {
     const kel = document.querySelector(`.kcurve[data-id="${CSS.escape(k.id)}"]`);
@@ -1080,7 +1094,7 @@ function renderPlacePanel() {
   const o = occ(p.latest || aggregate(p.kids), p.seats, p.source), s = p.latest;
   const where = [p.building && p.building !== p.name ? p.building : null, p.campus, p.uni,
     p.seats ? `${p.seats} seats` : null].filter(Boolean).join(", ");
-  const measured = s ? [s.count != null && !s.closed ? `${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
+  const measured = s ? [s.floors ? "Sum of the floors below" : null, s.count != null && !s.closed ?`${Math.round(s.count)} people${s.max ? ` of ${s.max}` : ""}` : null,
       `measured ${fmtAge(s.age_s)} ago`, SAMPLE_SOURCES[sampleSource(p)] || SOURCE_NAMES[sampleSource(p)] || sampleSource(p)].filter(Boolean).join(", ")
     : p.kids.length && o.rank === 0 ? "Sum of the floors below" : "";
   const notice = p.hours?.notice && (p.hours.notice.en || p.hours.notice.de);

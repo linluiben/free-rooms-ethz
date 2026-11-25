@@ -7,9 +7,11 @@ GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timelin
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH,
                                  plus `unreliable` and `unreliable_reason`;
                                  404 for rooms of other universities (ETH has no details for them)
-GET /api/places               -> study places with their latest live occupancy sample (+ usual_now)
+GET /api/places               -> study places with their latest live occupancy sample (+ usual_now);
+                                 a library without samples of its own gets its floors' sum
 GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples and
-                                 the usual curve of that weekday (popular.usual_day)
+                                 the usual curve of that weekday (popular.usual_day; summed over
+                                 the floors for such a library)
 GET /api/buildings            -> building coordinates [{uni, code, lat, lon, name, source}]
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
@@ -171,6 +173,11 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     usual_cache[key] = usual
                 for p in all_places:
                     p["usual_now"] = usual.get(p["id"])
+                by_id = {p["id"]: p for p in all_places}
+                for pid, kids in places.summed_parents(all_places).items():
+                    weights = [places.floor_weight(k) for k in kids]
+                    if all(weights):   # a library made of floors: their usual values, seat-weighted
+                        by_id[pid]["usual_now"] = popular.sum_usual_now([k["usual_now"] for k in kids], weights)
                 return {"now": now_local().isoformat(timespec="minutes"),
                         "health": store.health(conn, sources),
                         "places": all_places}
@@ -206,6 +213,9 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 usual = popular.usual_day(conn, ids, day)
             finally:
                 conn.close()
+            weights = [places.floor_weight(k) for k in kids]
+            if pid in places.summed_parents([place, *kids]) and all(weights):
+                usual[pid] = popular.sum_usual_day([usual[k["id"]] for k in kids], weights)
             for p in (place, *kids):
                 p["samples"] = samples[p["id"]]
                 p["usual"] = usual[p["id"]]
