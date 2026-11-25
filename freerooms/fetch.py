@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 
-from . import store
+from . import reliability, store
 from .api import ApiClient, query_id
 from .availability import TZ
 from .campus import canonical
@@ -183,6 +183,7 @@ def _run(conn, client, days, buildings, sites, typecodes) -> dict:
 
 
 def _save_room(conn, r: dict, rid: str, rows, n_raw: int, start: date, end: date) -> None:
+    reliability.record_fetch(conn, UNI, rid, rows, n_raw, (start, end))   # before the old data is replaced
     conn.execute(
         """INSERT INTO rooms(id, building, floor, room, type, typecode, seats, workplaces, site, uni, campus,
                               fetched_at, n_entries)

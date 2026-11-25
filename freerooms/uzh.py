@@ -33,7 +33,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 
-from . import store
+from . import reliability, store
 from .api import USER_AGENT, retry_after
 from .availability import TZ
 from .campus import IRCHEL, OERLIKON, ZENTRUM, canonical
@@ -495,6 +495,7 @@ def _run(conn, client: UzhClient, days: int, today: date) -> dict:
             log.warning("%s: no blocks at all in %d days, marking unknown", rid, fetched_days)
             stats["empty"] += 1
         campus, site = campus_of[i]
+        reliability.record_fetch(conn, UNI, rid, rows, n_raw, (lo.date(), (hi - timedelta(days=1)).date()))
         _save_room(conn, p, rid, campus, site, rows, n_raw)
         by_campus[campus] += 1
         stats["ok"] += 1

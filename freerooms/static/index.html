@@ -492,7 +492,7 @@ function card(r, at, unis) {
   const soon = r.state === "free" && r.minutes != null && r.minutes < state.min;
   const meta = [places(r), typeName(r), whereText(r, state.where, unis)].filter(Boolean).join(", ");
   const walk = state.pos ? walkHTML(r) : "";
-  const warn = r.state !== "unknown" && !r.hours_known ? `, <span class="warn">opening hours unknown</span>` : "";
+  const warn = (r.state !== "unknown" && !r.hours_known ? `, <span class="warn">opening hours unknown</span>` : "") + flagNote(r);
   const now = r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : "";
   return `<button class="card ${r.state}${soon ? " soon" : ""}${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
     <div class="top"><span class="name">${esc(r.id)}</span><span class="status">${statusText(r, at)}</span></div>
@@ -500,11 +500,23 @@ function card(r, at, unis) {
     ${timelineBar(r.timeline, at, false)}</button>`;
 }
 
+// Rooms that often get booked at short notice (server: reliability.py) get a small note, and don't
+// get the door-sign plate while a room that isn't flagged is about as good: in the Rooms view the next
+// one in the list, in Near (or with Nearest first) the nearest one at most HERO_SLACK_M farther away.
+const HERO_SLACK_M = 250;
+const flagNote = r => r.unreliable ? `, <span class="warn" title="${esc(r.unreliable_reason || "")}">often booked at short notice</span>` : "";
+function heroFirst(list, flagged, d = () => null) {
+  if (!list.length || !flagged(list[0])) return list;
+  const d0 = d(list[0]);
+  const i = list.findIndex(x => !flagged(x) && (d0 == null || d(x) == null || d(x) - d0 <= HERO_SLACK_M));
+  return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
+}
+
 // The longest-free room, set as its own door sign at the top of the Rooms view.
 function heroCard(r, at, unis, kind = nearOn() ? "Nearest free room" : null) {
   const meta = [r.minutes != null ? `${dur(r.minutes)} free` : null, places(r), typeName(r), whereText(r, state.where, unis),
     r.next_kind === "closed" ? "then the building closes" : null].filter(Boolean).join(", ");
-  const warn = r.hours_known ? "" : `, <span class="warn">opening hours unknown</span>`;
+  const warn = (r.hours_known ? "" : `, <span class="warn">opening hours unknown</span>`) + flagNote(r);
   const d = state.pos ? dist(r) : null;
   return `<button class="card sign free${state.room === r.id ? " sel" : ""}" data-id="${esc(r.id)}">
     ${kind ? `<div class="kind">${esc(kind)}</div>` : ""}
@@ -524,7 +536,8 @@ function renderRooms(d, at) {
   // Longest free first; rooms without opening-hours data go last (their "free until" is unreliable).
   const byLen = (a, b) => (b.hours_known - a.hours_known) || (b.minutes ?? 1e9) - (a.minutes ?? 1e9) ||
     ((b.seats || b.workplaces || 0) - (a.seats || a.workplaces || 0)) || natural(a.id, b.id);
-  const free = rooms.filter(goodFor).sort(nearOn() ? (a, b) => byDist(a, b) || byLen(a, b) : byLen);
+  const free = heroFirst(rooms.filter(goodFor).sort(nearOn() ? (a, b) => byDist(a, b) || byLen(a, b) : byLen),
+    r => r.unreliable, r => nearOn() ? dist(r) : null);
   const short = rooms.filter(r => r.state === "free" && !goodFor(r)).sort(byLen);
   const soonFree = rooms.filter(r => r.state === "busy").sort((a, b) => a.until.localeCompare(b.until) || natural(a.id, b.id)).slice(0, 8);
   const unis = multiUni(rooms), c = r => card(r, at, unis);
@@ -652,6 +665,7 @@ function renderPanel() {
     <div class="pstatus s-${r.state}">${statusText(r, at)}</div>
     ${r.state === "busy" && r.reason ? `<div class="meta">Now: ${esc(r.reason)}</div>` : ""}
     ${hours ? `<div class="meta">Building ${esc(r.building)} ${hours}</div>` : ""}
+    ${r.unreliable ? `<div class="meta"><span class="warn">Often booked at short notice</span>${r.unreliable_reason ? `: ${esc(r.unreliable_reason)}` : ""}. It may be taken although it shows as free.</div>` : ""}
     ${dist(r) != null ? `<div class="meta"><span class="walk">${esc(walkText(dist(r), true))}</span> ${dist(r) >= 40 ? heading(state.pos, r) : ""}, to the middle of ${esc(r.building)}</div>` : ""}
     <h3>${esc(day)}</h3>
     ${timelineBar(r.timeline, at, true)}
@@ -1136,7 +1150,8 @@ function nearCandidates() {
   }
   // Nearest first; equally near: the room free longest, the place with most seats free.
   const score = c => c.kind === "room" ? -(c.x.minutes ?? 1e6) : -(c.o.free ?? 0);
-  const known = out.filter(c => c.d != null).sort((a, b) => a.d - b.d || score(a) - score(b));
+  const known = heroFirst(out.filter(c => c.d != null).sort((a, b) => a.d - b.d || score(a) - score(b)),
+    c => c.kind === "room" && c.x.unreliable, c => c.d);
   const unknown = out.filter(c => c.d == null).sort((a, b) => score(a) - score(b));
   return { known, unknown };
 }

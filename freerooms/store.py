@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS rooms (
     uni         TEXT NOT NULL DEFAULT 'ETH',  -- 'ETH' | 'UZH'
     campus      TEXT,               -- shared campus name (campus.canonical), e.g. 'Zentrum'
     fetched_at  TEXT,               -- last successful allocation fetch (UTC ISO)
-    n_entries   INTEGER             -- raw entries in last fetch (0 => unknown: empty or malformed)
+    n_entries   INTEGER,            -- raw entries in last fetch (0 => unknown: empty or malformed)
+    watch_since TEXT                -- first fetch compared with an earlier one (UTC ISO), see reliability.py
 );
 CREATE TABLE IF NOT EXISTS intervals (
     room_id     TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -82,6 +83,20 @@ CREATE TABLE IF NOT EXISTS occupancy (
     closed    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (place_id, ts)
 );
+-- What changed between two fetches of a room (Phase 4, reliability.py). No foreign key: the history
+-- outlives a room that is dropped for a while (e.g. by fetch --buildings).
+CREATE TABLE IF NOT EXISTS booking_changes (
+    room_id     TEXT NOT NULL,
+    detected_at TEXT NOT NULL,      -- UTC ISO, the fetch that saw the change
+    prev_fetch  TEXT NOT NULL,      -- UTC ISO, the fetch before it (the change happened in between)
+    start       TEXT NOT NULL,      -- naive Europe/Zurich, like intervals
+    end         TEXT NOT NULL,
+    change      TEXT NOT NULL,      -- 'added' | 'removed' | 'moved' | 'restored' (only 'added' counts)
+    lead_s      INTEGER NOT NULL,   -- start - detected_at, seconds
+    max_lead_s  INTEGER NOT NULL,   -- start - prev_fetch: the longest the real lead time can be
+    title       TEXT
+);
+CREATE INDEX IF NOT EXISTS booking_changes_room ON booking_changes(room_id, detected_at);
 -- Building coordinates (Phase 3), loaded from freerooms/buildings.json by geo.sync().
 CREATE TABLE IF NOT EXISTS buildings (
     uni     TEXT NOT NULL,              -- 'ETH' | 'UZH' (both have a 'HIT')
@@ -116,6 +131,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "uni" not in cols:  # Phase 2: rooms of more than one university
         conn.execute("ALTER TABLE rooms ADD COLUMN uni TEXT NOT NULL DEFAULT 'ETH'")
         conn.execute("ALTER TABLE rooms ADD COLUMN campus TEXT")
+        conn.commit()
+    if "watch_since" not in cols:  # Phase 4: short-notice bookings (booking_changes comes from SCHEMA)
+        conn.execute("ALTER TABLE rooms ADD COLUMN watch_since TEXT")
         conn.commit()
     # One campus spelling everywhere (older rows say 'Zürich Zentrum' etc.).
     for table, src in (("rooms", "site"), ("places", "campus")):

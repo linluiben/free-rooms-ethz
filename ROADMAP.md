@@ -187,6 +187,7 @@ Either way, it's worth telling them about type 13, since it affects their users 
 
 - "Usually busy at this time" per place (median of the same weekday and time slot over the last N weeks), shown as Google-Maps-style popular times.
 - For rooms: flag rooms that often get short-notice bookings (diff successive fetches), and rooms that are often locked (from user feedback, Phase 5).
+  **Status (2026-11-25):** short-notice bookings built (#20): `booking_changes`, `reliability.py`, flag in `/api/rooms` and `/api/roomdetail`, note and hero down-ranking in the UI. The "often locked" part waits for the feedback button (#21).
 - Prediction: "the Lesesaal usually fills up by 10:00 in the exam session".
 
 ### Phase 5: Long-term

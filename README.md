@@ -13,7 +13,7 @@ The university and campus choice is shared by all three views and remembered (de
 - No login, no scraping, **no dependencies**: Python ≥ 3.10 standard library only.
 - One fetch takes about 1 min (0.3 s delay between requests; it slows down when the API reports few requests left and honours `Retry-After` on HTTP 429). The web app reads from SQLite. It only calls ETH when someone opens a room's details for the first time, and caches the result for a week.
 
-> “Free” means *nothing is scheduled*. The room may still be locked, and short-notice bookings or cancellations may be missing. This is not an official ETH service.
+> “Free” means *nothing is scheduled*. The room may still be locked, and short-notice bookings or cancellations may be missing. Rooms that often get short-notice bookings are marked, see [below](#rooms-often-booked-at-short-notice). This is not an official ETH service.
 
 ## Quick start
 
@@ -142,6 +142,19 @@ The **Near** tab answers "where can I sit down now?" with one tap: the rooms tha
   - ETH: OpenStreetMap via the Overpass API (`overpass-api.de`, two mirrors as fallback). Only a few ETH outlines name their building (`name="ETH HCI"`, `"ETH Hauptgebäude (HG)"`; `ref` where present); we ask for both inside a box around each campus and take the centre of the outline. Codes OSM can't name come from ETH's building map (`mapsearch.ethz.ch/map.do?gebaeudeMap=<code>`, address and point; HTTP only), one request a second; points outside every ETH campus are ignored. Codes neither source knows are logged.
 
   A failed source keeps the coordinates it had. Places without coordinates are listed under "Distance unknown".
+
+### Rooms often booked at short notice
+
+Each fetch replaces a room's schedule, so before it does, [`freerooms/reliability.py`](freerooms/reliability.py) compares the old bookings with the new ones and writes what changed to the `booking_changes` table. A booking that wasn't there in the previous fetch and starts less than **24 h** later counts as *short notice*. A room with at least **3** of them, and at least **1 per week** on average, over the last **4 weeks** is flagged (constants at the top of the file; a room watched for less than 4 weeks is judged on the time it was watched, but at least one week). `/api/rooms` gives every room `unreliable` (true/false) and `unreliable_reason` (e.g. "4 short-notice bookings in the last 4 weeks"); `/api/roomdetail` carries the same for ETH rooms. The UI adds a small "often booked at short notice" note to flagged rooms and doesn't put them on the door-sign plate (Rooms view, Near) while a room that isn't flagged is about as good (in Near: at most 250 m farther). History only starts with this version, so at first nothing is flagged.
+
+To avoid flagging rooms wrongly:
+
+- The first fetch of a room, an empty or malformed answer (the room is *unknown*), and the fetch right after one are never compared. A failed fetch keeps the old data and isn't compared either.
+- Only the days both fetches cover are compared, minus the last day of each: new days entering the window and past days leaving it aren't changes.
+- Bookings are matched by start and end only, so a new title or type is no change. A booking at a time that was there before as cancelled or closed, one that overlaps a booking that disappeared in the same fetch (moved), and one that comes back after it disappeared earlier (a source hiccup) are recorded but never count.
+- The lead time counts from the *previous* fetch: the booking was made some time after it. Only bookings that are short notice even in that worst case count, so a long gap between fetches can't make old bookings look new. Bookings that had already ended when the previous fetch looked are ignored.
+
+User feedback ("often locked", Phase 5) can later be added as another signal in `reliability.assess`.
 
 ## Development
 

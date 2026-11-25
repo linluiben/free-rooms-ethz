@@ -1,9 +1,11 @@
 """Tiny stdlib web server: static UI + JSON API reading from SQLite.
 
 GET /                         -> UI (with ?view=spaces or ?view=near the study places are inlined too)
-GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time)
+GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zurich time), each with
+                                 `unreliable` and `unreliable_reason` (frequent short-notice bookings)
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
-GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
+GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH,
+                                 plus `unreliable` and `unreliable_reason`;
                                  404 for rooms of other universities (ETH has no details for them)
 GET /api/places               -> study places with their latest live occupancy sample
 GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
@@ -23,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, geo, live, places, store, uzh
+from . import fetch, geo, live, places, reliability, store, uzh
 from .api import ApiClient
 from .availability import TZ, building_hours, now_local, query
 
@@ -140,7 +142,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                     "now": now_local().isoformat(timespec="minutes"),
                     "last_fetch": store.get_meta(conn, "last_fetch"),
                     "health": store.health(conn, sources),
-                    "rooms": with_coords(query(conn, t), geo.coords(conn)),
+                    "rooms": reliability.annotate(with_coords(query(conn, t), geo.coords(conn)),
+                                                  reliability.scores(conn)),
                     "buildings": building_hours(conn, t),
                 }
             finally:
@@ -224,21 +227,28 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 row = conn.execute("SELECT fetched_at, json FROM room_details WHERE room_id=?", (rid,)).fetchone()
                 now = datetime.now(timezone.utc)
                 if row and now - datetime.fromisoformat(row["fetched_at"]) < DETAIL_TTL:
-                    return row["json"]
+                    return self._with_reliability(conn, rid, row["json"])
                 try:
                     with detail_lock:
                         body = json.dumps(simplify_detail(client.room_detail(rid)), ensure_ascii=False)
                 except Exception:
                     if row:   # stale beats nothing
                         log.warning("room detail refresh failed for %s, serving cached copy", rid)
-                        return row["json"]
+                        return self._with_reliability(conn, rid, row["json"])
                     raise
                 conn.execute("INSERT OR REPLACE INTO room_details(room_id, fetched_at, json) VALUES (?,?,?)",
                              (rid, now.isoformat(timespec="seconds"), body))
                 conn.commit()
-                return body
+                return self._with_reliability(conn, rid, body)
             finally:
                 conn.close()
+
+        @staticmethod
+        def _with_reliability(conn, rid: str, body: str) -> str:
+            """The cached detail JSON plus our own short-notice flag (not cached: it changes per fetch)."""
+            s = reliability.scores(conn).get(rid) or {}
+            d = {**json.loads(body), "unreliable": bool(s.get("unreliable")), "unreliable_reason": s.get("reason")}
+            return json.dumps(d, ensure_ascii=False)
 
     return Handler
 
