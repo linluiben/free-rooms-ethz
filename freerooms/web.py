@@ -5,8 +5,9 @@ GET /api/rooms?at=ISO         -> status of every room at `at` (default: now, Zur
 GET /api/room?id=..&date=..   -> one room's intervals for a day (for the timeline view)
 GET /api/roomdetail?id=..     -> room attributes (seats, windows, food, sockets, ...), cached from ETH;
                                  404 for rooms of other universities (ETH has no details for them)
-GET /api/places               -> study places with their latest live occupancy sample
-GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples
+GET /api/places               -> study places with their latest live occupancy sample (+ usual_now)
+GET /api/place?id=..&date=..  -> one study place (and its sub-places) with that day's samples and
+                                 the usual curve of that weekday (popular.usual_day)
 GET /api/buildings            -> building coordinates [{uni, code, lat, lon, name, source}]
 GET /api/health               -> data freshness per source (last success, error, row counts, stale)
 GET /healthz                  -> ok
@@ -23,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import fetch, geo, live, places, store, uzh
+from . import fetch, geo, live, places, popular, store, uzh
 from .api import ApiClient
 from .availability import TZ, building_hours, now_local, query
 
@@ -63,6 +64,7 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
     client = client or ApiClient()
     sources = (*rooms_sources, *live_sources)  # listed in health even before their first fetch
     detail_lock = threading.Lock()   # one upstream request at a time
+    usual_cache: dict = {}           # popular.slot_key -> usual_now result (past samples don't change)
     conn = store.connect(db_path)
     try:
         n = geo.sync(conn)               # buildings.json -> table, when the file is newer
@@ -156,9 +158,19 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
         def _places(self):
             conn = store.connect(db_path)
             try:
+                all_places = with_coords(places.latest(conn), geo.coords(conn))
+                ids = [p["id"] for p in all_places]
+                key = (popular.slot_key(), tuple(ids))
+                usual = usual_cache.get(key)
+                if usual is None:
+                    usual = popular.usual_now(conn, ids)
+                    usual_cache.clear()
+                    usual_cache[key] = usual
+                for p in all_places:
+                    p["usual_now"] = usual.get(p["id"])
                 return {"now": now_local().isoformat(timespec="minutes"),
                         "health": store.health(conn, sources),
-                        "places": with_coords(places.latest(conn), geo.coords(conn))}
+                        "places": all_places}
             finally:
                 conn.close()
 
@@ -171,7 +183,8 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
 
         def _place(self, qs) -> dict | None:
             """One place as in /api/places plus its samples for a Zurich day; its sub-places in `kids`.
-            Each sample also gets `local` (naive Zurich time). None for an id that isn't in `places`."""
+            Each sample also gets `local` (naive Zurich time), and each place `usual`, the usual
+            curve of that weekday (see popular.usual_day). None for an id that isn't in `places`."""
             pid = qs.get("id")
             if not pid:
                 raise ValueError("missing id")
@@ -185,12 +198,14 @@ def make_handler(db_path: str, client: ApiClient | None = None, live_sources: tu
                 if place is None:
                     return None
                 kids = [p for p in all_places if p["parent_id"] == pid]
-                samples = places.samples_between(conn, [pid, *(k["id"] for k in kids)],
-                                                 places.utc_iso(start), places.utc_iso(end))
+                ids = [pid, *(k["id"] for k in kids)]
+                samples = places.samples_between(conn, ids, places.utc_iso(start), places.utc_iso(end))
+                usual = popular.usual_day(conn, ids, day)
             finally:
                 conn.close()
             for p in (place, *kids):
                 p["samples"] = samples[p["id"]]
+                p["usual"] = usual[p["id"]]
                 for s in p["samples"]:
                     s["local"] = datetime.fromisoformat(s["ts"]).astimezone(TZ).strftime("%Y-%m-%dT%H:%M")
             return {"now": now_local().isoformat(timespec="minutes"), "date": day.isoformat(),
